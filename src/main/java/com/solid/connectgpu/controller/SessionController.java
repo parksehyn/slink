@@ -75,7 +75,8 @@ public class SessionController {
 
     private SessionResponse toResponse(Session s) {
         return new SessionResponse(
-                s.getCode(), s.getNgrokHost(), s.getSshPort(), s.getOtp(), s.getJupyterToken(), s.getExpiresAt()
+                s.getCode(), s.getNgrokHost(), s.getSshPort(), s.getOtp(), s.getJupyterToken(),
+                s.getExpiresAt().toString()
         );
     }
 }
