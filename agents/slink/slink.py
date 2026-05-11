@@ -2,13 +2,83 @@
 """slink - SOLID VM <-> Colab GPU 연결 CLI"""
 
 import argparse
+import json
 import os
 import sys
+import threading
+import time
+from datetime import datetime, timezone
 
 import requests
 
 RELAY_ENV = "SLINK_RELAY"
-RELAY_DEFAULT = "http://localhost:8081"
+RELAY_DEFAULT = "https://slink-production.up.railway.app"
+SLINKRC = os.path.expanduser("~/.slinkrc")
+
+
+# ── config ────────────────────────────────────────────────────────────────────
+
+def load_config() -> dict:
+    if not os.path.exists(SLINKRC):
+        print("[slink] 오류: 설정 파일이 없습니다. 먼저 'slink init'을 실행하세요.")
+        sys.exit(1)
+    with open(SLINKRC, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def save_config(cfg: dict):
+    with open(SLINKRC, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, ensure_ascii=False, indent=2)
+
+
+# ── commands ──────────────────────────────────────────────────────────────────
+
+def cmd_init(args):
+    relay_url = args.relay.rstrip("/")
+
+    print("[slink] 사용자 등록을 시작합니다.")
+    student_id = input("  학번: ").strip()
+    email = input("  이메일: ").strip()
+
+    if not student_id or not email:
+        print("[slink] 오류: 학번과 이메일을 모두 입력해야 합니다.")
+        sys.exit(1)
+
+    try:
+        resp = requests.post(
+            f"{relay_url}/api/users/register",
+            json={"studentId": student_id, "email": email},
+            timeout=10,
+        )
+    except requests.ConnectionError:
+        print(f"[slink] 오류: Relay 서버에 연결할 수 없습니다 ({relay_url})")
+        sys.exit(1)
+
+    resp.raise_for_status()
+    data = resp.json()
+    api_key = data["apiKey"]
+
+    cfg = {
+        "student_id": student_id,
+        "email": email,
+        "api_key": api_key,
+        "relay_url": relay_url,
+    }
+    save_config(cfg)
+
+    print(f"[slink] ✓ 등록 완료")
+    print(f"[slink] API Key: {api_key}")
+    print(f"[slink] 설정 저장: {SLINKRC}")
+    print()
+    print("  다음 단계: Colab 좌측 🔑 → 새 보안 비밀 추가")
+    print(f"  이름: SLINK_API_KEY  /  값: {api_key}")
+
+
+def cmd_whoami(args):
+    cfg = load_config()
+    print(f"[slink] 학번   : {cfg['student_id']}")
+    print(f"[slink] 이메일 : {cfg['email']}")
+    print(f"[slink] Relay  : {cfg['relay_url']}")
 
 
 def fetch_session(code: str, relay_url: str) -> dict:
@@ -27,9 +97,6 @@ def fetch_session(code: str, relay_url: str) -> dict:
 
 
 def sync_files_http(jupyter_base_url: str, token: str, local_dir: str):
-    """Jupyter REST API로 로컬 파일을 Colab에 업로드합니다."""
-    import os
-
     headers = {
         "Authorization": f"token {token}",
         "ngrok-skip-browser-warning": "true",
@@ -68,39 +135,133 @@ def sync_files_http(jupyter_base_url: str, token: str, local_dir: str):
     print(f"[slink] 파일 {uploaded}개 동기화 완료")
 
 
-def cmd_connect(args):
-    code = args.code
-    relay_url = args.relay.rstrip("/")
+def format_remaining(expires_at_str: str) -> str:
+    try:
+        expires_at = datetime.fromisoformat(expires_at_str.replace("Z", "+00:00"))
+        secs = int((expires_at - datetime.now(timezone.utc)).total_seconds())
+        if secs <= 0:
+            return "만료됨"
+        return f"{secs // 3600}h {(secs % 3600) // 60}m"
+    except Exception:
+        return "알 수 없음"
 
-    print(f"[slink] 코드 {code} 조회 중...")
-    session = fetch_session(code, relay_url)
+
+def update_vscode_settings(jupyter_base_url: str, token: str):
+    vscode_dir = os.path.join(os.getcwd(), ".vscode")
+    os.makedirs(vscode_dir, exist_ok=True)
+    settings_path = os.path.join(vscode_dir, "settings.json")
+
+    settings = {}
+    if os.path.exists(settings_path):
+        with open(settings_path, encoding="utf-8") as f:
+            try:
+                settings = json.load(f)
+            except json.JSONDecodeError:
+                pass
+
+    settings["jupyter.jupyterServerType"] = "remote"
+    settings["jupyter.existingJupyterServer.uri"] = f"{jupyter_base_url}/?token={token}"
+
+    with open(settings_path, "w", encoding="utf-8") as f:
+        json.dump(settings, f, ensure_ascii=False, indent=2)
+
+    print(f"[slink] VS Code 설정 갱신: {settings_path}")
+
+
+def _keepalive_loop(jupyter_base_url: str, token: str, interval: int = 600):
+    headers = {
+        "Authorization": f"token {token}",
+        "ngrok-skip-browser-warning": "true",
+    }
+    while True:
+        time.sleep(interval)
+        try:
+            requests.get(f"{jupyter_base_url}/api", headers=headers, timeout=10)
+        except Exception:
+            pass
+
+
+def start_keepalive(jupyter_base_url: str, token: str):
+    t = threading.Thread(target=_keepalive_loop, args=(jupyter_base_url, token), daemon=True)
+    t.start()
+    print("[slink] keepalive 데몬 시작 (10분마다 ping)")
+
+
+def print_connection_info(session: dict):
+    jupyter_base_url = session["ngrokHost"].rstrip("/")
+    token = session["jupyterToken"]
+    remaining = format_remaining(session.get("expiresAt", ""))
+
+    print()
+    print("=" * 62)
+    print(f"  [slink] ✓ Connected  (세션 만료까지 {remaining})")
+    print()
+    print(f"  URL  : {jupyter_base_url}")
+    print(f"  Token: {token}")
+    print("=" * 62)
+
+
+def cmd_connect(args):
+    # --relay 명시 없으면 .slinkrc에서 로드, 없으면 기본값
+    if args.relay != RELAY_DEFAULT or not os.path.exists(SLINKRC):
+        relay_url = args.relay.rstrip("/")
+        email = None
+        api_key = None
+    else:
+        cfg = load_config()
+        relay_url = cfg["relay_url"].rstrip("/")
+        email = cfg["email"]
+        api_key = cfg["api_key"]
+
+    # code 인자가 있으면 코드 방식(폴백), 없으면 owner 방식
+    if args.code:
+        print(f"[slink] 코드 {args.code} 조회 중...")
+        session = fetch_session(args.code, relay_url)
+    else:
+        if not email or not api_key:
+            print("[slink] 오류: 먼저 'slink init'을 실행하거나 --relay와 코드를 지정하세요.")
+            sys.exit(1)
+        print(f"[slink] {email} 세션 조회 중...")
+        try:
+            resp = requests.get(
+                f"{relay_url}/api/session/by-owner/{email}",
+                headers={"Authorization": f"Bearer {api_key}"},
+                timeout=10,
+            )
+        except requests.ConnectionError:
+            print(f"[slink] 오류: Relay 서버에 연결할 수 없습니다 ({relay_url})")
+            sys.exit(1)
+
+        if resp.status_code == 401:
+            print("[slink] 오류: 인증 실패. API Key를 확인하세요.")
+            sys.exit(1)
+        if resp.status_code == 404:
+            print("[slink] 오류: 등록된 세션이 없습니다. Colab을 먼저 실행하세요.")
+            sys.exit(1)
+        resp.raise_for_status()
+        session = resp.json()
 
     jupyter_base_url = session["ngrokHost"].rstrip("/")
     token = session["jupyterToken"]
-    lab_url = f"{jupyter_base_url}/lab?token={token}"
 
-    # 파일 동기화 (--sync-dir 지정 시)
-    sync_dir = os.path.abspath(args.sync_dir)
     if args.sync_dir != ".":
+        sync_dir = os.path.abspath(args.sync_dir)
         print(f"[slink] 파일 동기화 중: {sync_dir} -> Colab")
         sync_files_http(jupyter_base_url, token, sync_dir)
-    else:
-        print("[slink] 팁: --sync-dir <경로> 로 파일을 Colab에 업로드할 수 있습니다.")
 
-    print()
-    print("=" * 62)
-    print("  [slink] 연결 준비 완료!")
-    print()
-    print(f"  Jupyter 접속 주소:")
-    print(f"  {lab_url}")
-    print()
-    print("  VS Code 연결 방법:")
-    print("  1. .ipynb 파일 열기")
-    print("  2. 오른쪽 상단 커널 선택 → 기존 Jupyter 서버")
-    print(f"  3. URL: {jupyter_base_url}")
-    print(f"  4. Token: {token}")
-    print("=" * 62)
+    update_vscode_settings(jupyter_base_url, token)
+    start_keepalive(jupyter_base_url, token)
+    print_connection_info(session)
 
+    print("\n  Ctrl+C 로 연결을 종료합니다.")
+    try:
+        while True:
+            time.sleep(60)
+    except KeyboardInterrupt:
+        print("\n[slink] 연결을 종료합니다.")
+
+
+# ── main ──────────────────────────────────────────────────────────────────────
 
 def main():
     parser = argparse.ArgumentParser(
@@ -109,11 +270,22 @@ def main():
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
+    # init
+    i = sub.add_parser("init", help="학번/이메일 등록 및 API Key 발급")
+    i.add_argument(
+        "--relay", default=os.getenv(RELAY_ENV, RELAY_DEFAULT), metavar="URL",
+        help=f"Relay 서버 주소 (기본값: {RELAY_DEFAULT})"
+    )
+
+    # whoami
+    sub.add_parser("whoami", help="현재 등록된 사용자 정보 확인")
+
+    # connect
     c = sub.add_parser("connect", help="Colab GPU 세션에 연결합니다")
-    c.add_argument("code", help="6자리 연결 코드 (Colab 노트북에서 확인)")
+    c.add_argument("code", nargs="?", default=None, help="6자리 연결 코드 (생략 시 ~/.slinkrc 사용)")
     c.add_argument(
         "--sync-dir", default=".", metavar="DIR",
-        help="Colab에 업로드할 로컬 디렉토리 (기본값: 현재 디렉토리, 생략 시 동기화 안 함)"
+        help="Colab에 업로드할 로컬 디렉토리"
     )
     c.add_argument(
         "--relay", default=os.getenv(RELAY_ENV, RELAY_DEFAULT), metavar="URL",
@@ -121,8 +293,7 @@ def main():
     )
 
     args = parser.parse_args()
-    if args.command == "connect":
-        cmd_connect(args)
+    {"init": cmd_init, "whoami": cmd_whoami, "connect": cmd_connect}[args.command](args)
 
 
 if __name__ == "__main__":

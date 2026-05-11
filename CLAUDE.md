@@ -34,6 +34,8 @@ connectGPU/
 │   └── slink/
 │       ├── slink.py                       # CLI 툴
 │       └── requirements.txt              # requests
+├── docs/
+│   └── design-a.md                        # 학생 사용 설계(A안) — 데모/디벨롭 로드맵
 ├── Procfile                               # Railway 시작 명령
 └── build.gradle                           # Spring Boot 4.0, Gradle 8.14, Java 17
 ```
@@ -64,3 +66,7 @@ connectGPU/
 - ngrok HTTP 터널 사용 (TCP는 무료 계정에 카드 필요)
 - Colab 재실행 전 `pkill -9 -f ngrok` 으로 이전 프로세스 정리
 - Railway 배포 후 로컬 ngrok 불필요
+
+## 관련 문서
+
+- [`docs/design-a.md`](docs/design-a.md) — 학생 사용 설계(A안): Colab Agent 배포 방식 비교(PyPI vs 원라이너), `slink init`/`connect` 흐름, Relay API 변경사항, 디벨롭 우선순위.

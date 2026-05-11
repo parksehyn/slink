@@ -35,3 +35,10 @@ out/
 
 ### VS Code ###
 .vscode/
+
+### Python ###
+__pycache__/
+*.py[cod]
+
+### Claude ###
+.claude/settings.local.json
