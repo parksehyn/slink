@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 import requests
 
 RELAY_ENV = "SLINK_RELAY"
-RELAY_DEFAULT = "https://slink-production.up.railway.app"
+RELAY_DEFAULT = "https://slink-production-3e7d.up.railway.app"
 SLINKRC = os.path.expanduser("~/.slinkrc")
 
 

@@ -10,7 +10,7 @@ import secrets
 import requests
 from pyngrok import ngrok, conf
 
-RELAY_DEFAULT = "https://slink-production.up.railway.app"
+RELAY_DEFAULT = "https://slink-production-3e7d.up.railway.app"
 
 
 def _load_secret(key: str) -> str:

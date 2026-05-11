@@ -11,8 +11,7 @@ SOLID Cloud VM ↔ Google Colab GPU 연동 시스템.
   - Railway Relay 서버에 세션 등록 → 6자리 코드 발급
 
 [Railway] Spring Boot Relay Server
-  URL: https://slink-production.up.railway.app
-  Swagger: https://slink-production.up.railway.app/swagger-ui.html
+  URL: https://slink-production-3e7d.up.railway.app
   GitHub: https://github.com/parksehyn/slink
 
 [VS Code / SOLID VM] slink.py
