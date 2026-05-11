@@ -1,7 +1,5 @@
 package com.solid.connectgpu.controller;
 
-import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -12,7 +10,6 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Optional;
 
-@Tag(name = "Agent", description = "Colab 에이전트 배포 API")
 @RestController
 public class AgentController {
 
@@ -24,7 +21,6 @@ public class AgentController {
         }
     }
 
-    @Operation(summary = "Colab 부트스트랩 스크립트 반환 (python - 로 바로 실행 가능)")
     @GetMapping(value = "/agent", produces = MediaType.TEXT_PLAIN_VALUE + ";charset=UTF-8")
     public ResponseEntity<String> agent(HttpServletRequest request) {
         String relayUrl = resolveBaseUrl(request);

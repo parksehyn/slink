@@ -5,14 +5,11 @@ import com.solid.connectgpu.dto.SessionResponse;
 import com.solid.connectgpu.model.Session;
 import com.solid.connectgpu.service.SessionService;
 import com.solid.connectgpu.service.UserService;
-import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/api/session")
-@Tag(name = "Session", description = "Colab GPU 세션 관리 API")
 public class SessionController {
 
     private final SessionService sessionService;
@@ -24,7 +21,6 @@ public class SessionController {
     }
 
     @PostMapping("/register")
-    @Operation(summary = "Colab 에이전트가 세션을 등록합니다 (owner 기반, 코드 폴백 유지)")
     public ResponseEntity<SessionResponse> register(@RequestBody RegisterRequest request) {
         Session session = sessionService.register(
                 request.owner(), request.ngrokHost(), request.sshPort(), request.otp(), request.jupyterToken()
@@ -33,7 +29,6 @@ public class SessionController {
     }
 
     @GetMapping("/{code}")
-    @Operation(summary = "6자리 코드로 세션 조회 (폴백)")
     public ResponseEntity<SessionResponse> get(@PathVariable String code) {
         return sessionService.find(code)
                 .map(s -> ResponseEntity.ok(toResponse(s)))
@@ -41,14 +36,12 @@ public class SessionController {
     }
 
     @DeleteMapping("/{code}")
-    @Operation(summary = "6자리 코드로 세션 삭제 (폴백)")
     public ResponseEntity<Void> delete(@PathVariable String code) {
         sessionService.remove(code);
         return ResponseEntity.noContent().build();
     }
 
     @GetMapping("/by-owner/{email}")
-    @Operation(summary = "소유자 이메일로 세션 조회 (Bearer 인증)")
     public ResponseEntity<SessionResponse> getByOwner(
             @PathVariable String email,
             @RequestHeader("Authorization") String auth) {
@@ -59,7 +52,6 @@ public class SessionController {
     }
 
     @DeleteMapping("/by-owner/{email}")
-    @Operation(summary = "소유자 세션 삭제 (Bearer 인증)")
     public ResponseEntity<Void> deleteByOwner(
             @PathVariable String email,
             @RequestHeader("Authorization") String auth) {
