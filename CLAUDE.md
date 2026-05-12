@@ -7,7 +7,7 @@ SOLID Cloud VM ↔ Google Colab GPU 연동 시스템.
 ```
 [Colab] colab_agent.ipynb
   - JupyterLab 포트 8899 실행
-  - ngrok HTTP 터널로 외부 노출
+  - Cloudflare Quick Tunnel로 외부 노출 (trycloudflare.com, 토큰 불필요)
   - Railway Relay 서버에 세션 등록 → 6자리 코드 발급
 
 [Railway] Spring Boot Relay Server
@@ -60,11 +60,30 @@ connectGPU/
 3. 연결 코드 + URL + Token 확인
 4. VS Code → 커널 선택 → 기존 Jupyter 서버 → URL + Token 입력
 
+## 터널 방식: Cloudflare Quick Tunnel
+
+ngrok 대신 Cloudflare Tunnel(`cloudflared`)을 사용한다. 이유:
+- 계정/토큰 없이 즉시 `https://random.trycloudflare.com` URL 발급
+- 학생마다 ngrok 계정을 만들 필요 없음 (ngrok free tier는 토큰 필수)
+
+에이전트에서 사용하는 방식:
+```python
+proc = subprocess.Popen(
+    ["cloudflared", "tunnel", "--url", "http://localhost:8899"],
+    stderr=subprocess.PIPE, stdout=subprocess.DEVNULL,
+)
+for line in proc.stderr:
+    m = re.search(r'https://[a-z0-9-]+\.trycloudflare\.com', line.decode())
+    if m:
+        tunnel_url = m.group(0)
+        break
+```
+
 ## 주의사항
 
-- ngrok HTTP 터널 사용 (TCP는 무료 계정에 카드 필요)
-- Colab 재실행 전 `pkill -9 -f ngrok` 으로 이전 프로세스 정리
-- Railway 배포 후 로컬 ngrok 불필요
+- Cloudflare Quick Tunnel 사용 (계정·토큰 불필요, `trycloudflare.com`)
+- Colab 재실행 전 `pkill -9 -f cloudflared` 로 이전 프로세스 정리
+- Railway 배포 후 로컬 터널 불필요
 
 ## 관련 문서
 
