@@ -93,71 +93,61 @@ SOLID Cloud VM(code-server 환경) ↔ Google Colab T4 GPU 연결을 **학생 �
 
 ---
 
-## 데모 실행 방법 (ngrok 방식)
+## 데모 실행 방법 (Cloudflare 방식)
 
 > 미팅에서 직접 시연할 때 순서대로 따라가면 됨.
 
 ### 사전 준비 (1회)
 
 ```
-[Colab Secrets 등록]
-- 좌측 🔑 아이콘 → 새 보안 비밀 추가
-  ① 이름: SLINK_API_KEY  / 값: sk-dku-xxxx  (slink init으로 발급받은 키)
-  ② 이름: NGROK_AUTHTOKEN / 값: <ngrok 계정 토큰>
-  → 두 항목 모두 "노트북 액세스 허용" ON
-
-[로컬 / SOLID VM]
-$ pip install requests
-$ python agents/slink/slink.py init
+[SOLID VM]
+$ pipx install git+https://github.com/parksehyn/slink.git#subdirectory=agents/slink
+$ pipx ensurepath && source ~/.bashrc
+$ slink init
   학번: 32211690
   이메일: hyun@dankook.ac.kr
+  → API Key: sk-dku-xxxx 발급
+
+[Colab Secrets 등록]
+- 좌측 🔑 아이콘 → 새 보안 비밀 추가
+  이름: SLINK_API_KEY / 값: sk-dku-xxxx
+  "노트북 액세스 허용" ON
+  (ngrok 계정/토큰 불필요)
 ```
 
 ### 매 데모 실행 순서
 
-**Step 1 — Colab에서 에이전트 실행**
+**Step 1 — Colab 빈 노트북 열기 → T4 GPU 선택 → 셀에 1줄 붙여넣고 실행**
 
 ```python
-# Colab 셀에 붙여넣고 실행
-import os
-from google.colab import userdata
-os.environ['SLINK_API_KEY'] = userdata.get('SLINK_API_KEY')
-os.environ['NGROK_AUTHTOKEN'] = userdata.get('NGROK_AUTHTOKEN')
-
-exec(open('agent.py').read())
-# 또는 원라이너:
-# import urllib.request; exec(urllib.request.urlopen('https://slink-production-3e7d.up.railway.app/agent').read())
+import urllib.request; exec(urllib.request.urlopen('https://slink-production-3e7d.up.railway.app/agent').read())
 ```
 
 약 1분 후 출력:
 ```
 [slink-agent] 사용자: hyun@dankook.ac.kr
 [slink-agent] JupyterLab 시작 중...
-[slink-agent] ngrok 터널 시작 중...
+[slink-agent] Cloudflare 터널 시작 중...
 ====================================================
   ✓ Colab GPU 준비 완료!
   연결 코드 : ABC123
-  Jupyter  : https://xxxx.ngrok-free.app
+  Jupyter  : https://xxxx.trycloudflare.com
   VM에서   : slink connect
 ====================================================
 ```
 
-**Step 2 — VM / 로컬에서 연결**
+**Step 2 — SOLID VM에서 연결**
 
 ```bash
-$ python agents/slink/slink.py connect
+$ slink connect
 ```
 
 출력:
 ```
-[slink] hyun@dankook.ac.kr 세션 조회 중...
-[slink] VS Code 설정 갱신: .vscode/settings.json
-[slink] keepalive 데몬 시작 (10분마다 ping)
-
 ==============================================================
   [slink] ✓ Connected  (세션 만료까지 11h 59m)
 
-  URL  : https://xxxx.ngrok-free.app
+  URL  : https://xxxx.trycloudflare.com
   Token: 1aa155729380a15cb8a0eff00d52d01c
 ==============================================================
 ```
@@ -167,7 +157,7 @@ $ python agents/slink/slink.py connect
 ```
 1. .ipynb 파일 열기
 2. 우측 상단 커널 선택 → Select Another Kernel → Existing Jupyter Server
-3. URL 입력: https://xxxx.ngrok-free.app/?token=1aa155729380a15cb8a0eff00d52d01c
+3. URL 입력: https://xxxx.trycloudflare.com/?token=1aa155729380a15cb8a0eff00d52d01c
 4. 서버 이름 입력 (ex: colab-gpu) → Python 3 커널 선택
 ```
 
@@ -175,35 +165,8 @@ $ python agents/slink/slink.py connect
 
 ```python
 import torch
-print(torch.cuda.get_device_name())  # → Tesla T4
+print(torch.cuda.get_device_name(0))  # → Tesla T4
 ```
-
----
-
-## 실제 동작 확인 (2026-05-11) — ngrok 방식 기준
-
-end-to-end 테스트 통과:
-
-```
-[Colab]  원라이너 실행
-           → JupyterLab 기동 (port 8899)
-           → ngrok HTTP 터널 생성
-           → Relay에 세션 등록
-         출력: ✓ Colab GPU 준비 완료!
-               연결 코드: XXXXXX
-               Jupyter  : https://unvented-decimal-endorphin.ngrok-free.dev
-
-[SOLID VM / 로컬]
-         $ slink connect
-         출력: ✓ Connected (세션 만료까지 11h 59m)
-               URL  : https://unvented-decimal-endorphin.ngrok-free.dev
-               Token: 1aa155729380a15cb8a0eff00d52d01c
-
-[VS Code] torch.cuda.get_device_name() → 'Tesla T4'  ✓
-```
-
-> 단, 테스트 시 Colab Secret에 `NGROK_AUTHTOKEN`을 별도 등록한 상태에서 진행함.
-> 이 단계를 없애기 위해 v2(Cloudflare) 전환 예정.
 
 ---
 
@@ -220,11 +183,10 @@ end-to-end 테스트 통과:
 
 ## 발견된 문제 및 해결 방향
 
-### 문제 1: ngrok 토큰 필수화 (해결 예정)
+### 문제 1: ngrok 토큰 필수화 (해결 완료)
 - **현상**: ngrok 무료 계정도 2024년부터 authtoken 필수 (ERR_NGROK_4018)
 - **영향**: 학생마다 ngrok 계정 생성 + 토큰 발급 + Colab Secret 추가 필요
-- **해결 방향**: **Cloudflare Quick Tunnel로 교체** (계정/토큰 불필요, `trycloudflare.com`)
-- **상태**: CLAUDE.md에 설계 기록 완료, 코드 적용 예정
+- **해결**: **Cloudflare Quick Tunnel로 교체 완료** (계정/토큰 불필요, `trycloudflare.com`)
 
 ### 문제 2: Google.colab VS Code extension 호환 불가
 - **현상**: `Can't install 'google.colab': not compatible with code-server 1.95.2`
@@ -274,7 +236,7 @@ def _load_secret(key):
 | springdoc 404 | springdoc 2.x가 Spring Boot 4.0과 호환 안 됨 | springdoc 의존성 제거 |
 | Railway URL 오작동 | `slink-production.up.railway.app`이 다른 앱을 가리킴 | 신규 도메인 `slink-production-3e7d.up.railway.app` 생성 |
 | Gradle 빌드 실패 | Gradle 9.x에서 IBM_SEMERU 필드 제거됨 | Gradle 8.14 고정 |
-| ngrok ERR_NGROK_4018 | ngrok 무료 계정도 authtoken 필수 | Cloudflare Tunnel 전환 예정 |
+| ngrok ERR_NGROK_4018 | ngrok 무료 계정도 authtoken 필수 | Cloudflare Tunnel 전환 완료 |
 
 ---
 
@@ -365,10 +327,8 @@ end-to-end 테스트 통과 (SOLID VM 환경):
 
 ## 다음 단계
 
-- [ ] `colab_agent.ipynb` Cloudflare 버전으로 교체 (현재 구버전 ngrok)
-- [ ] `agent.py` → `agent_cf.py` 내용으로 교체 (메인 패키지 통일)
+- [ ] slink CLI PyPI 배포 (`pipx install slink-cli`로 단순화)
 - [ ] SOLID VM에서 `ms-toolsai.jupyter` 설치 가능 여부 확인
-- [ ] 학생 배포용 Colab 노트북 최종 정리
 - [ ] `slink reset` 명령 (API Key 재발급)
 
 ---
