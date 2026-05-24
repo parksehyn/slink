@@ -4,6 +4,7 @@
 import argparse
 import json
 import os
+import signal
 import sys
 import threading
 import time
@@ -14,6 +15,7 @@ import requests
 RELAY_ENV = "SLINK_RELAY"
 RELAY_DEFAULT = "https://slink-production-3e7d.up.railway.app"
 SLINKRC = os.path.expanduser("~/.slinkrc")
+SLINKPID = os.path.expanduser("~/.slink.pid")
 
 
 # ── config ────────────────────────────────────────────────────────────────────
@@ -29,6 +31,42 @@ def load_config() -> dict:
 def save_config(cfg: dict):
     with open(SLINKRC, "w", encoding="utf-8") as f:
         json.dump(cfg, f, ensure_ascii=False, indent=2)
+
+
+# ── daemon helpers ─────────────────────────────────────────────────────────────
+
+def _read_pid() -> int | None:
+    if not os.path.exists(SLINKPID):
+        return None
+    try:
+        with open(SLINKPID) as f:
+            return int(f.read().strip())
+    except (ValueError, OSError):
+        return None
+
+
+def _is_daemon_running() -> tuple[bool, int | None]:
+    pid = _read_pid()
+    if pid is None:
+        return False, None
+    try:
+        os.kill(pid, 0)
+        return True, pid
+    except ProcessLookupError:
+        os.remove(SLINKPID)
+        return False, None
+
+
+def _write_pid(pid: int):
+    with open(SLINKPID, "w") as f:
+        f.write(str(pid))
+
+
+def _remove_pid():
+    try:
+        os.remove(SLINKPID)
+    except FileNotFoundError:
+        pass
 
 
 # ── commands ──────────────────────────────────────────────────────────────────
@@ -201,8 +239,7 @@ def print_connection_info(session: dict):
     print("=" * 62)
 
 
-def cmd_connect(args):
-    # --relay 명시 없으면 .slinkrc에서 로드, 없으면 기본값
+def _get_session(args) -> tuple[dict, str]:
     if args.relay != RELAY_DEFAULT or not os.path.exists(SLINKRC):
         relay_url = args.relay.rstrip("/")
         email = None
@@ -213,34 +250,37 @@ def cmd_connect(args):
         email = cfg["email"]
         api_key = cfg["api_key"]
 
-    # code 인자가 있으면 코드 방식(폴백), 없으면 owner 방식
     if args.code:
         print(f"[slink] 코드 {args.code} 조회 중...")
-        session = fetch_session(args.code, relay_url)
-    else:
-        if not email or not api_key:
-            print("[slink] 오류: 먼저 'slink init'을 실행하거나 --relay와 코드를 지정하세요.")
-            sys.exit(1)
-        print(f"[slink] {email} 세션 조회 중...")
-        try:
-            resp = requests.get(
-                f"{relay_url}/api/session/by-owner/{email}",
-                headers={"Authorization": f"Bearer {api_key}"},
-                timeout=10,
-            )
-        except requests.ConnectionError:
-            print(f"[slink] 오류: Relay 서버에 연결할 수 없습니다 ({relay_url})")
-            sys.exit(1)
+        return fetch_session(args.code, relay_url), relay_url
 
-        if resp.status_code == 401:
-            print("[slink] 오류: 인증 실패. API Key를 확인하세요.")
-            sys.exit(1)
-        if resp.status_code == 404:
-            print("[slink] 오류: 등록된 세션이 없습니다. Colab을 먼저 실행하세요.")
-            sys.exit(1)
-        resp.raise_for_status()
-        session = resp.json()
+    if not email or not api_key:
+        print("[slink] 오류: 먼저 'slink init'을 실행하거나 --relay와 코드를 지정하세요.")
+        sys.exit(1)
 
+    print(f"[slink] {email} 세션 조회 중...")
+    try:
+        resp = requests.get(
+            f"{relay_url}/api/session/by-owner/{email}",
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=10,
+        )
+    except requests.ConnectionError:
+        print(f"[slink] 오류: Relay 서버에 연결할 수 없습니다 ({relay_url})")
+        sys.exit(1)
+
+    if resp.status_code == 401:
+        print("[slink] 오류: 인증 실패. API Key를 확인하세요.")
+        sys.exit(1)
+    if resp.status_code == 404:
+        print("[slink] 오류: 등록된 세션이 없습니다. Colab을 먼저 실행하세요.")
+        sys.exit(1)
+    resp.raise_for_status()
+    return resp.json(), relay_url
+
+
+def cmd_connect(args):
+    session, _ = _get_session(args)
     jupyter_base_url = session["ngrokHost"].rstrip("/")
     token = session["jupyterToken"]
 
@@ -250,6 +290,39 @@ def cmd_connect(args):
         sync_files_http(jupyter_base_url, token, sync_dir)
 
     update_vscode_settings(jupyter_base_url, token)
+
+    if args.daemon:
+        if not hasattr(os, "fork"):
+            print("[slink] 오류: 백그라운드 실행은 Linux/macOS에서만 지원됩니다.")
+            sys.exit(1)
+
+        running, existing_pid = _is_daemon_running()
+        if running:
+            print(f"[slink] 이미 백그라운드 실행 중입니다 (PID: {existing_pid})")
+            print(f"[slink] 종료하려면: slink disconnect")
+            sys.exit(1)
+
+        pid = os.fork()
+        if pid > 0:
+            # 부모: PID 기록 후 종료
+            _write_pid(pid)
+            print_connection_info(session)
+            print(f"\n[slink] 백그라운드 실행 중 (PID: {pid})")
+            print(f"[slink] 종료하려면: slink disconnect")
+            sys.exit(0)
+
+        # 자식: 터미널 분리 후 keepalive 실행
+        os.setsid()
+        with open(os.devnull, "r+") as devnull:
+            os.dup2(devnull.fileno(), sys.stdin.fileno())
+            os.dup2(devnull.fileno(), sys.stdout.fileno())
+            os.dup2(devnull.fileno(), sys.stderr.fileno())
+
+        signal.signal(signal.SIGTERM, lambda *_: (_remove_pid(), sys.exit(0)))
+        _keepalive_loop(jupyter_base_url, token)
+        return
+
+    # 포그라운드 모드
     start_keepalive(jupyter_base_url, token)
     print_connection_info(session)
 
@@ -259,6 +332,47 @@ def cmd_connect(args):
             time.sleep(60)
     except KeyboardInterrupt:
         print("\n[slink] 연결을 종료합니다.")
+
+
+def cmd_disconnect(args):
+    running, pid = _is_daemon_running()
+    if not running:
+        print("[slink] 실행 중인 백그라운드 세션이 없습니다.")
+        sys.exit(1)
+    os.kill(pid, signal.SIGTERM)
+    _remove_pid()
+    print(f"[slink] 백그라운드 세션 종료 (PID: {pid})")
+
+
+def cmd_status(args):
+    cfg = load_config()
+    relay_url = cfg["relay_url"].rstrip("/")
+    email = cfg["email"]
+    api_key = cfg["api_key"]
+
+    try:
+        resp = requests.get(
+            f"{relay_url}/api/session/by-owner/{email}",
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=10,
+        )
+    except requests.ConnectionError:
+        print("[slink] ✗ Relay 서버에 연결할 수 없습니다.")
+        sys.exit(1)
+
+    if resp.status_code == 404:
+        print("[slink] ✗ 세션 없음 — Colab을 먼저 실행하세요.")
+        sys.exit(1)
+
+    resp.raise_for_status()
+    session = resp.json()
+    remaining = format_remaining(session.get("expiresAt", ""))
+
+    running, pid = _is_daemon_running()
+    daemon_info = f" | 백그라운드 PID: {pid}" if running else " | keepalive 없음 (slink connect -d 권장)"
+
+    print(f"[slink] ✓ 연결됨 (만료까지 {remaining}){daemon_info}")
+    print(f"  URL  : {session['ngrokHost']}")
 
 
 # ── main ──────────────────────────────────────────────────────────────────────
@@ -283,6 +397,7 @@ def main():
     # connect
     c = sub.add_parser("connect", help="Colab GPU 세션에 연결합니다")
     c.add_argument("code", nargs="?", default=None, help="6자리 연결 코드 (생략 시 ~/.slinkrc 사용)")
+    c.add_argument("-d", "--daemon", action="store_true", help="백그라운드로 실행 (터미널 점유 없음)")
     c.add_argument(
         "--sync-dir", default=".", metavar="DIR",
         help="Colab에 업로드할 로컬 디렉토리"
@@ -292,8 +407,20 @@ def main():
         help=f"Relay 서버 주소 (환경변수 {RELAY_ENV} 또는 기본값: {RELAY_DEFAULT})"
     )
 
+    # disconnect
+    sub.add_parser("disconnect", help="백그라운드 keepalive 세션 종료")
+
+    # status
+    sub.add_parser("status", help="현재 Colab 세션 상태 확인")
+
     args = parser.parse_args()
-    {"init": cmd_init, "whoami": cmd_whoami, "connect": cmd_connect}[args.command](args)
+    {
+        "init": cmd_init,
+        "whoami": cmd_whoami,
+        "connect": cmd_connect,
+        "disconnect": cmd_disconnect,
+        "status": cmd_status,
+    }[args.command](args)
 
 
 if __name__ == "__main__":
