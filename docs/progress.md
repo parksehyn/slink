@@ -101,7 +101,7 @@ SOLID Cloud VM(code-server 환경) ↔ Google Colab T4 GPU 연결을 **학생 �
 
 ```
 [SOLID VM]
-$ pipx install git+https://github.com/parksehyn/slink.git#subdirectory=agents/slink
+$ pipx install slink-cli
 $ pipx ensurepath && source ~/.bashrc
 $ slink init
   학번: 32211690
@@ -175,7 +175,7 @@ print(torch.cuda.get_device_name(0))  # → Tesla T4
 | 구성 요소 | 상태 | 위치 |
 |-----------|------|------|
 | Relay 서버 | ✅ 운영 중 | Railway (자동 배포, main 브랜치 push 시) |
-| slink CLI | ✅ 완성 | `agents/slink/slink.py` |
+| slink CLI | ✅ PyPI 배포 완료 | `pipx install slink-cli` / `agents/slink/slink.py` |
 | slink-agent 패키지 | ✅ 완성 | `agents/slink-agent/` |
 | Colab 노트북 | ✅ 동작 확인 | `agents/colab_agent.ipynb` |
 
@@ -327,7 +327,7 @@ end-to-end 테스트 통과 (SOLID VM 환경):
 
 ## 다음 단계
 
-- [ ] slink CLI PyPI 배포 (`pipx install slink-cli`로 단순화)
+- [x] slink CLI PyPI 배포 (`pipx install slink-cli`) — 2026-05-24 완료
 - [ ] SOLID VM에서 `ms-toolsai.jupyter` 설치 가능 여부 확인
 - [ ] `slink reset` 명령 (API Key 재발급)
 
@@ -339,7 +339,7 @@ end-to-end 테스트 통과 (SOLID VM 환경):
 
 ```
 [SOLID VM]
-$ pipx install git+https://github.com/parksehyn/slink.git#subdirectory=agents/slink
+$ pipx install slink-cli
 $ pipx ensurepath && source ~/.bashrc
 $ slink init
   학번: 32211690

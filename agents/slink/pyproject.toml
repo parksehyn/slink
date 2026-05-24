@@ -6,8 +6,19 @@ build-backend = "setuptools.build_meta"
 name = "slink-cli"
 version = "0.1.0"
 description = "Solid-Link CLI — SOLID VM에서 Colab GPU 연결"
+readme = "README.md"
 requires-python = ">=3.9"
+license = "MIT"
+authors = [{ name = "shyun2e", email = "dhaprk0429@dankook.ac.kr" }]
+keywords = ["jupyter", "colab", "gpu", "remote-kernel"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
 dependencies = ["requests>=2.28"]
+
+[project.urls]
+Homepage = "https://github.com/parksehyn/slink"
 
 [project.scripts]
 slink = "slink:main"
