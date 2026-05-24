@@ -362,3 +362,38 @@ $ slink init
 4. VS Code에서 .ipynb 열고 커널 연결
    → torch.cuda.get_device_name(0) 으로 GPU 확인
 ```
+
+---
+
+## 사용자 관점 경우의 수
+
+### 정상 흐름
+
+| 상황 | 해야 할 것 |
+|------|-----------|
+| 처음 사용 (학기 초) | `slink init` → Colab Secret 등록 → 원라이너 → `slink connect` |
+| 매일 새로 시작 | 원라이너 → `slink connect` |
+| `slink connect` Ctrl+C 후 재연결 | `slink connect` 만 |
+| `slink connect` 끊겼는데 Colab은 살아있음 | `slink connect` 만 |
+
+### Colab 관련
+
+| 상황 | 해야 할 것 |
+|------|-----------|
+| Colab 탭 닫았다가 다시 열었는데 런타임 살아있음 | `slink connect` 만 |
+| Colab 탭 닫았다가 다시 열었는데 런타임 죽어있음 | 원라이너 → `slink connect` |
+| Colab 런타임 수동 종료 후 재시작 | 원라이너 → `slink connect` |
+| Colab 90분 무활동으로 끊김 | 원라이너 → `slink connect` |
+| Colab 12시간 최대 세션 만료 | 원라이너 → `slink connect` |
+
+### 에러 상황
+
+| 에러 메시지 | 원인 | 해결 |
+|------------|------|------|
+| `등록된 세션이 없습니다` | Colab이 꺼져있음 | 원라이너 먼저 실행 |
+| `인증 실패. API Key를 확인하세요` | `~/.slinkrc` 손상 또는 없음 | `slink init` 재실행 |
+| `Relay 서버에 연결할 수 없습니다` | Railway 서버 다운 | 잠시 후 재시도 |
+| VS Code에서 커널 연결 안 됨 | Colab 꺼진 후 `slink connect`만 한 경우 | 원라이너 → `slink connect` |
+| `SLINK_API_KEY를 등록하세요` | Colab Secret 미등록 | Colab 🔑 에서 등록 |
+
+> **핵심 규칙**: Colab 런타임이 새로 시작됐으면 → 원라이너 실행. 그 외에는 → `slink connect` 만.
