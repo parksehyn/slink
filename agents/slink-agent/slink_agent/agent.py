@@ -2,15 +2,16 @@
 """slink-agent — Colab GPU 에이전트"""
 
 import os
+import re
 import subprocess
 import sys
 import time
 import secrets
 
 import requests
-from pyngrok import ngrok, conf
 
 RELAY_DEFAULT = "https://slink-production-3e7d.up.railway.app"
+CF_BIN = "/usr/local/bin/cloudflared"
 
 
 def _load_secret(key: str) -> str:
@@ -19,6 +20,18 @@ def _load_secret(key: str) -> str:
         return userdata.get(key) or ""
     except Exception:
         return os.environ.get(key, "")
+
+
+def _install_cloudflared():
+    if os.path.exists(CF_BIN):
+        return
+    print("[slink-agent] cloudflared 설치 중...")
+    import urllib.request
+    urllib.request.urlretrieve(
+        "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64",
+        CF_BIN,
+    )
+    os.chmod(CF_BIN, 0o755)
 
 
 def run(relay_url: str):
@@ -43,20 +56,12 @@ def run(relay_url: str):
     email = r.json()["email"]
     print(f"[slink-agent] 사용자: {email}")
 
-    # 3. 이전 ngrok 종료
-    try:
-        ngrok.kill()
-    except Exception:
-        pass
-    subprocess.run(["pkill", "-9", "-f", "ngrok"], capture_output=True)
+    # 3. cloudflared 설치 및 이전 프로세스 종료
+    _install_cloudflared()
+    subprocess.run(["pkill", "-9", "-f", "cloudflared"], capture_output=True)
     time.sleep(1)
 
-    # 4. ngrok 인증 토큰 (선택 — 없어도 동작)
-    ngrok_token = _load_secret("NGROK_AUTHTOKEN")
-    if ngrok_token:
-        conf.get_default().auth_token = ngrok_token
-
-    # 5. JupyterLab 시작
+    # 4. JupyterLab 시작
     jupyter_token = secrets.token_hex(16)
     print("[slink-agent] JupyterLab 시작 중...")
     subprocess.Popen([
@@ -68,15 +73,28 @@ def run(relay_url: str):
     ])
     time.sleep(6)
 
-    # 6. ngrok 터널
-    print("[slink-agent] ngrok 터널 시작 중...")
-    tunnel = ngrok.connect(8899, "http")
-    ngrok_host = tunnel.public_url
+    # 5. Cloudflare Quick Tunnel
+    print("[slink-agent] Cloudflare 터널 시작 중...")
+    cf_proc = subprocess.Popen(
+        [CF_BIN, "tunnel", "--url", "http://localhost:8899"],
+        stderr=subprocess.PIPE,
+        stdout=subprocess.DEVNULL,
+    )
 
-    # 7. Relay 등록
+    tunnel_url = None
+    for line in cf_proc.stderr:
+        m = re.search(r'https://[a-z0-9-]+\.trycloudflare\.com', line.decode())
+        if m:
+            tunnel_url = m.group(0)
+            break
+
+    if not tunnel_url:
+        raise SystemExit("[slink-agent] 오류: Cloudflare 터널 URL을 가져오지 못했습니다.")
+
+    # 6. Relay 등록
     resp = requests.post(f"{relay_url}/api/session/register", json={
         "owner": email,
-        "ngrokHost": ngrok_host,
+        "ngrokHost": tunnel_url,
         "sshPort": 0,
         "otp": "",
         "jupyterToken": jupyter_token,
@@ -87,11 +105,11 @@ def run(relay_url: str):
     print(f"\n{'=' * 52}")
     print(f"  ✓ Colab GPU 준비 완료!")
     print(f"  연결 코드 : {code}")
-    print(f"  Jupyter  : {ngrok_host}")
+    print(f"  Jupyter  : {tunnel_url}")
     print(f"  VM에서   : slink connect")
     print(f"{'=' * 52}\n")
 
-    # 8. 유지 (런타임 중지 버튼으로 종료)
+    # 7. 유지 (런타임 중지 버튼으로 종료)
     print("[slink-agent] 실행 중...")
     try:
         while True:
@@ -105,7 +123,7 @@ def run(relay_url: str):
             )
         except Exception:
             pass
-        ngrok.kill()
+        cf_proc.terminate()
         print("[slink-agent] 세션 종료")
 
 

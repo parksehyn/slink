@@ -1,6 +1,6 @@
 # Solid-Link (slink) — 진행 현황 문서
 
-> 최종 업데이트: 2026-05-12
+> 최종 업데이트: 2026-05-24
 
 ## 프로젝트 목표
 
@@ -327,24 +327,61 @@ def _load_secret(key):
 
 ---
 
+## 실제 동작 확인 (2026-05-24) — Cloudflare 방식 기준
+
+end-to-end 테스트 통과 (SOLID VM 환경):
+
+```
+[Colab]  원라이너 실행
+         import urllib.request; exec(urllib.request.urlopen('https://slink-production-3e7d.up.railway.app/agent').read())
+           → cloudflared 설치
+           → JupyterLab 기동 (port 8899)
+           → Cloudflare Quick Tunnel 생성 (trycloudflare.com)
+           → Relay에 세션 등록
+         출력: ✓ Colab GPU 준비 완료!
+               Jupyter: https://xxxx.trycloudflare.com
+
+[SOLID VM]
+         $ slink connect
+         출력: ✓ Connected (세션 만료까지 11h 59m)
+
+[VS Code / ipynb]
+         import torch
+         print(torch.cuda.get_device_name(0))  → 'Tesla T4' ✓
+```
+
+---
+
+## 트러블슈팅 기록 (2026-05-24 추가)
+
+| 문제 | 원인 | 해결 |
+|------|------|------|
+| `pip install` → `externally-managed-environment` 오류 | SOLID VM이 Debian 계열, 시스템 Python 보호 | `pipx install` 사용 |
+| `pipx install` → Authentication failed (exit code 128) | GitHub 레포가 private | 레포를 public으로 변경 |
+| `pipx install` 성공 후 `slink` 명령어 not found | `/home/ubuntu/.local/bin`이 PATH에 없음 | `pipx ensurepath && source ~/.bashrc` |
+| `pip install` GitHub 클론 매우 느림 | SOLID VM 네트워크 속도 | `pipx` 사용 또는 `curl`로 단일 파일 다운로드 |
+
+---
+
 ## 다음 단계
 
-- [ ] Cloudflare Quick Tunnel 적용 (`agent.py`, `slink_agent/agent.py`, `colab_agent.ipynb`)
+- [ ] `colab_agent.ipynb` Cloudflare 버전으로 교체 (현재 구버전 ngrok)
+- [ ] `agent.py` → `agent_cf.py` 내용으로 교체 (메인 패키지 통일)
 - [ ] SOLID VM에서 `ms-toolsai.jupyter` 설치 가능 여부 확인
-- [ ] SOLID VM에서 `slink connect` → `.vscode/settings.json` 반영 → 커널 연결 end-to-end 테스트
 - [ ] 학생 배포용 Colab 노트북 최종 정리
 - [ ] `slink reset` 명령 (API Key 재발급)
 
 ---
 
-## 사용자 흐름 (현재 기준)
+## 사용자 흐름 (현재 기준 — Cloudflare 방식)
 
 ### 학기 초 1회 셋업
 
 ```
 [SOLID VM]
-$ pip install requests
-$ python slink.py init
+$ pipx install git+https://github.com/parksehyn/slink.git#subdirectory=agents/slink
+$ pipx ensurepath && source ~/.bashrc
+$ slink init
   학번: 32211690
   이메일: hyun@dankook.ac.kr
   → API Key: sk-dku-xxxx 발급
@@ -352,13 +389,16 @@ $ python slink.py init
 [Colab] 좌측 🔑 → 새 보안 비밀 추가
   이름: SLINK_API_KEY / 값: sk-dku-xxxx
   노트북 액세스: ON
+  (ngrok 계정/토큰 불필요)
 ```
 
 ### 매일 사용
 
 ```
-1. Colab 북마크 클릭 → GPU 노트북 열기
-2. Ctrl+F9 (모두 실행) → 약 1분 대기
+1. Colab 빈 노트북 열기 → T4 GPU 선택
+2. 셀에 1줄 붙여넣고 실행 (약 1분 대기):
+   import urllib.request; exec(urllib.request.urlopen('https://slink-production-3e7d.up.railway.app/agent').read())
 3. SOLID VM에서: $ slink connect
-4. VS Code에서 .ipynb 열고 커널 자동 연결
+4. VS Code에서 .ipynb 열고 커널 연결
+   → torch.cuda.get_device_name(0) 으로 GPU 확인
 ```
