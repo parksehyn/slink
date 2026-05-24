@@ -325,9 +325,40 @@ end-to-end 테스트 통과 (SOLID VM 환경):
 
 ---
 
+## 2026-05-24 작업 내역
+
+### 완료한 작업
+
+| 작업 | 내용 |
+|------|------|
+| Cloudflare 전환 완료 | `agent.py` ngrok → Cloudflare 교체, `agent_cf.py` 삭제, `/agent-cf` 엔드포인트 제거 |
+| `colab_agent.ipynb` 교체 | 구버전 ngrok 노트북 → 원라이너 1줄짜리로 교체 |
+| PyPI 배포 | `pipx install slink-cli` 로 설치 가능 (v0.1.0) |
+| 백그라운드 실행 | `slink connect -d` (터미널 점유 없음), `slink disconnect`, `slink status` 추가 (v0.2.0) |
+| end-to-end 테스트 | SOLID VM에서 Cloudflare 방식으로 Tesla T4 연결 확인 |
+
+### 조사한 내용: Relay 서버를 SOLID VM에 올릴 수 있는가?
+
+**결론: 불가능 — Railway 유지 필요**
+
+SOLID Cloud VM은 OpenVPN을 통해서만 접근 가능한 사설 네트워크(`10.0.X.X`)입니다.
+Relay 서버는 Colab(Google 서버)에서 HTTP 요청을 받아야 하는데,
+Google 서버가 VPN 없이 `10.0.X.X`에 접근하는 방법이 없습니다.
+
+```
+Colab (Google 서버) → Relay 서버   ← VPN 없이 불가능
+SOLID VM           → Relay 서버   ← VPN으로 가능
+```
+
+→ Relay 서버는 공인 IP를 가진 외부 서비스(현재 Railway)에 있어야 함.
+→ 교수님 미팅 시 Railway 또는 학교 공개 서버 자원 확보 논의 필요.
+
+---
+
 ## 다음 단계
 
-- [x] slink CLI PyPI 배포 (`pipx install slink-cli`) — 2026-05-24 완료
+- [ ] 교수님 미팅: Relay 서버 장기 운영 방안 논의 (Railway 유지 vs 학교 공개 서버)
+- [ ] SOLID 계정 연동 (`slink init` 없이 SOLID 로그인으로 자동 등록)
 - [ ] SOLID VM에서 `ms-toolsai.jupyter` 설치 가능 여부 확인
 - [ ] `slink reset` 명령 (API Key 재발급)
 
