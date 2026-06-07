@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>SOLID Service Portal</title>
+<link rel="stylesheet" href="solid-demo.css">
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -46,15 +47,49 @@
 </style>
 </head>
 <body>
-<header>
-  <h1>SOLID Service Portal</h1>
-  <span id="user-info"></span>
-  &nbsp;
-  <button id="logout" onclick="doLogout()">로그아웃</button>
-</header>
-<div class="notice">
-  ℹ️ <strong>내부 주소(INTERNAL)</strong>는 현재 모의 DNS입니다. <strong>외부 공개(PUBLIC)</strong>는 VM에서 <code>slink agent start --instance-id solid-XXXX</code> 실행 후 실제 Cloudflare Quick Tunnel로 연결됩니다.
-</div>
+<div class="solid-shell">
+  <aside class="solid-sidebar">
+    <div class="solid-logo">
+      <div class="solid-logo-mark">DKU</div>
+      <div class="solid-logo-text">
+        <strong>단국대학교</strong>
+        <span>DANKOOK UNIVERSITY</span>
+      </div>
+    </div>
+    <nav class="solid-nav">
+      <a class="solid-nav-item" href="#">Dashboard</a>
+      <a class="solid-nav-item" href="#">Compute</a>
+      <a class="solid-nav-item" href="#">Storage</a>
+      <a class="solid-nav-item" href="#">Network</a>
+      <a class="solid-nav-item active" href="/portal/index.html">Service Portal</a>
+    </nav>
+  </aside>
+
+  <div class="solid-topbar">
+    <div class="solid-top-left">
+      <span class="solid-menu-icon">☰</span>
+      <select class="solid-view-select" aria-label="view">
+        <option>Default view</option>
+      </select>
+    </div>
+    <div class="solid-user">
+      <span id="user-info"></span>
+      <span class="solid-avatar">CE</span>
+      <button id="logout" onclick="doLogout()">로그아웃</button>
+    </div>
+  </div>
+
+  <main class="solid-content">
+    <div class="solid-page-title">
+      <div>
+        <h1>SOLID Service Portal</h1>
+        <p>VM 내부 서비스를 이름으로 관리하고 필요 시 외부로 공개합니다.</p>
+      </div>
+      <a href="/portal/add.html" class="btn btn-primary btn-sm">서비스 추가</a>
+    </div>
+    <div class="solid-note">
+      내부 주소(INTERNAL)는 현재 모의 DNS입니다. 외부 공개(PUBLIC)는 VM Agent와 Cloudflare Quick Tunnel로 실제 동작합니다.
+    </div>
 
 <!-- 로그인 폼 -->
 <div class="container" id="login-section">
@@ -71,14 +106,37 @@
 </div>
 
 <!-- 서비스 목록 -->
-<div class="container" id="main-section" style="display:none">
-  <div class="card">
+<div class="container solid-wide" id="main-section" style="display:none">
+  <div class="solid-grid">
+    <section class="solid-panel">
+      <p class="solid-panel-title">Resources</p>
+      <div class="solid-metrics">
+        <div class="solid-metric"><label>Registered services</label><strong id="metric-services">0</strong></div>
+        <div class="solid-metric"><label>Public services</label><strong id="metric-public">0</strong></div>
+        <div class="solid-metric"><label>Agent status</label><strong id="metric-agent" style="font-size:15px">Ready</strong></div>
+        <div class="solid-metric"><label>Internal DNS</label><strong style="font-size:15px;color:#d97706">Mock</strong></div>
+      </div>
+    </section>
+    <section class="solid-panel">
+      <p class="solid-panel-title">Demo Flow</p>
+      <div style="font-size:13px;color:#64748b;line-height:1.8">
+        1. VM에서 서비스 실행<br>
+        2. 포털에서 서비스 등록<br>
+        3. 외부 공개 시작<br>
+        4. 공개 URL로 접속 확인
+      </div>
+    </section>
+  </div>
+
+  <div class="card solid-card-compact solid-table-wrap">
     <div class="toolbar">
       <h2 style="margin:0">내 서비스</h2>
       <a href="/portal/add.html" class="btn btn-primary btn-sm">+ 서비스 추가</a>
     </div>
     <div id="service-list"><p class="empty">로딩 중…</p></div>
   </div>
+</div>
+  </main>
 </div>
 
 <script src="portal.js"></script>
@@ -120,9 +178,14 @@ async function loadServices() {
     const el = document.getElementById('service-list');
 
     if (!services.length) {
+        document.getElementById('metric-services').textContent = '0';
+        document.getElementById('metric-public').textContent = '0';
         el.innerHTML = '<p class="empty">등록된 서비스가 없습니다. 서비스를 추가해보세요.</p>';
         return;
     }
+
+    document.getElementById('metric-services').textContent = services.length;
+    document.getElementById('metric-public').textContent = services.filter(s => s.scope === 'PUBLIC').length;
 
     const rows = services.map(s => `
       <tr>

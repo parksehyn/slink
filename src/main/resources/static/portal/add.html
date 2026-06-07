@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>서비스 추가 — SOLID Service Portal</title>
+<link rel="stylesheet" href="solid-demo.css">
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -35,12 +36,51 @@
 </style>
 </head>
 <body>
-<header>
-  <a href="/portal/index.html">← 목록</a>
-  <h1>서비스 추가</h1>
-</header>
+<div class="solid-shell">
+  <aside class="solid-sidebar">
+    <div class="solid-logo">
+      <div class="solid-logo-mark">DKU</div>
+      <div class="solid-logo-text">
+        <strong>단국대학교</strong>
+        <span>DANKOOK UNIVERSITY</span>
+      </div>
+    </div>
+    <nav class="solid-nav">
+      <a class="solid-nav-item" href="#">Dashboard</a>
+      <a class="solid-nav-item" href="#">Compute</a>
+      <a class="solid-nav-item" href="#">Storage</a>
+      <a class="solid-nav-item" href="#">Network</a>
+      <a class="solid-nav-item active" href="/portal/index.html">Service Portal</a>
+    </nav>
+  </aside>
+
+  <div class="solid-topbar">
+    <div class="solid-top-left">
+      <span class="solid-menu-icon">☰</span>
+      <select class="solid-view-select" aria-label="view">
+        <option>Default view</option>
+      </select>
+    </div>
+    <div class="solid-user">
+      <span>CE 32211690</span>
+      <span class="solid-avatar">CE</span>
+    </div>
+  </div>
+
+  <main class="solid-content">
+    <div class="solid-page-title">
+      <div>
+        <h1>서비스 추가</h1>
+        <p>SOLID VM에서 실행 중인 포트를 서비스 이름으로 등록합니다.</p>
+      </div>
+      <a href="/portal/index.html" class="btn btn-outline">목록</a>
+    </div>
+    <div class="solid-note">
+      데모에서는 내부 DNS 이름을 미리 보여주고, 외부 공개는 상세 화면에서 VM Agent를 통해 실제 터널로 연결합니다.
+    </div>
+
 <div class="container">
-  <div class="card">
+  <div class="card solid-card-compact">
     <h2>새 서비스 등록</h2>
     <div class="form-group">
       <label for="name">서비스 이름</label>
@@ -88,6 +128,8 @@
     </div>
     <p id="error"></p>
   </div>
+</div>
+  </main>
 </div>
 
 <script src="portal.js"></script>

@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>서비스 상세 — SOLID Service Portal</title>
+<link rel="stylesheet" href="solid-demo.css">
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -56,18 +57,54 @@
 </style>
 </head>
 <body>
-<header>
-  <a href="/portal/index.html">← 목록</a>
-  <h1 id="page-title">서비스 상세</h1>
-</header>
-<div class="notice">
-  ℹ️ <strong>내부 주소(INTERNAL)</strong>는 현재 모의 DNS입니다. <strong>외부 공개(PUBLIC)</strong>는 VM에서 <code>slink agent start --instance-id solid-XXXX</code> 실행 후 실제 Cloudflare Quick Tunnel로 연결됩니다.
-</div>
+<div class="solid-shell">
+  <aside class="solid-sidebar">
+    <div class="solid-logo">
+      <div class="solid-logo-mark">DKU</div>
+      <div class="solid-logo-text">
+        <strong>단국대학교</strong>
+        <span>DANKOOK UNIVERSITY</span>
+      </div>
+    </div>
+    <nav class="solid-nav">
+      <a class="solid-nav-item" href="#">Dashboard</a>
+      <a class="solid-nav-item" href="#">Compute</a>
+      <a class="solid-nav-item" href="#">Storage</a>
+      <a class="solid-nav-item" href="#">Network</a>
+      <a class="solid-nav-item active" href="/portal/index.html">Service Portal</a>
+    </nav>
+  </aside>
+
+  <div class="solid-topbar">
+    <div class="solid-top-left">
+      <span class="solid-menu-icon">☰</span>
+      <select class="solid-view-select" aria-label="view">
+        <option>Default view</option>
+      </select>
+    </div>
+    <div class="solid-user">
+      <span>CE 32211690</span>
+      <span class="solid-avatar">CE</span>
+    </div>
+  </div>
+
+  <main class="solid-content">
+    <div class="solid-page-title">
+      <div>
+        <h1 id="page-title">서비스 상세</h1>
+        <p>내부 DNS 주소와 외부 공개 터널 상태를 한 화면에서 관리합니다.</p>
+      </div>
+      <a href="/portal/index.html" class="btn btn-outline">목록</a>
+    </div>
+    <div class="solid-note">
+      내부 주소(INTERNAL)는 현재 모의 DNS입니다. 외부 공개(PUBLIC)는 VM Agent와 Cloudflare Quick Tunnel로 실제 동작합니다.
+    </div>
 
 <div id="loading" class="container">로딩 중…</div>
-<div class="container" id="main" style="display:none">
+<div class="container solid-wide" id="main" style="display:none">
+  <div class="solid-grid">
   <!-- 기본 정보 -->
-  <div class="card">
+  <div class="card solid-card-compact">
     <p class="section-title">기본 정보</p>
     <div class="field"><span class="field-label">이름</span>
       <span class="field-value" id="f-name"></span></div>
@@ -84,7 +121,7 @@
   </div>
 
   <!-- 주소 -->
-  <div class="card">
+  <div class="card solid-card-compact">
     <p class="section-title">주소</p>
     <div class="field">
       <span class="field-label">내부 주소 <span style="color:#d97706;font-size:11px">(모의)</span></span>
@@ -100,9 +137,10 @@
     <div class="field"><span class="field-label">공개 만료</span>
       <span class="field-value" id="f-expiry">—</span></div>
   </div>
+  </div>
 
   <!-- 범위 변경 -->
-  <div class="card">
+  <div class="card solid-card-compact">
     <p class="section-title">접근 범위 변경</p>
     <div id="scope-change-public-notice" style="display:none;font-size:13px;color:#92400e;
          background:#fef3c7;border-left:3px solid #d97706;padding:8px 12px;border-radius:4px;margin-bottom:10px">
@@ -122,7 +160,7 @@
   </div>
 
   <!-- 외부 공개 -->
-  <div class="card" id="publish-card">
+  <div class="card solid-card-compact" id="publish-card">
     <p class="section-title">외부 공개</p>
 
     <!-- PENDING 상태 안내 -->
@@ -151,13 +189,15 @@
   </div>
 
   <!-- 위험 구역 -->
-  <div class="card">
+  <div class="card solid-card-compact">
     <p class="section-title">서비스 삭제</p>
     <p style="font-size:13px;color:#64748b;margin-bottom:12px">삭제하면 복구할 수 없습니다.</p>
     <button class="btn btn-danger" onclick="doDelete()">서비스 삭제</button>
   </div>
 
   <p id="msg"></p>
+</div>
+  </main>
 </div>
 
 <script src="portal.js"></script>
