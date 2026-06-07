@@ -53,7 +53,7 @@
   <button id="logout" onclick="doLogout()">로그아웃</button>
 </header>
 <div class="notice">
-  ⚠️ 내부 DNS는 현재 모의(mock) 구현입니다. 외부 공개(PUBLIC)는 SOLID VM에서 <code>slink agent start</code>를 실행해야 실제 Cloudflare 터널이 생성됩니다.
+  ℹ️ <strong>내부 주소(INTERNAL)</strong>는 현재 모의 DNS입니다. <strong>외부 공개(PUBLIC)</strong>는 VM에서 <code>slink agent start --instance-id solid-XXXX</code> 실행 후 실제 Cloudflare Quick Tunnel로 연결됩니다.
 </div>
 
 <!-- 로그인 폼 -->
@@ -77,7 +77,7 @@
       <h2 style="margin:0">내 서비스</h2>
       <a href="/portal/add.html" class="btn btn-primary btn-sm">+ 서비스 추가</a>
     </div>
-    <div id="service-list"></div>
+    <div id="service-list"><p class="empty">로딩 중…</p></div>
   </div>
 </div>
 

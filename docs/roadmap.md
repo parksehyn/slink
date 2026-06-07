@@ -1,6 +1,6 @@
 # slink 기능 로드맵
 
-> 최종 업데이트: 2026-06-07  
+> 최종 업데이트: 2026-06-08  
 > 상세 설계: [SOLID Service Portal 설계](service-portal-design.md)
 
 ## 제품 방향
@@ -107,7 +107,8 @@ Quick Tunnel은 임의의 `trycloudflare.com` 주소를 발급한다. 고정된 
 - [x] 서비스 등록 화면 (`/portal/add.html`)
 - [x] 서비스 상세 및 접근 범위 변경 화면 (`/portal/detail.html`)
 - [x] 외부 공개 시작·종료 화면
-- [x] 상태, TTL, 내부 주소, 공개 URL 표시 (DNS·터널 모의 구현 명시)
+- [x] 상태, TTL, 내부 주소, 공개 URL 표시 (내부 DNS 모의 구현 명시; 외부 공개는 VM Agent 실제 동작)
+- [x] PENDING 상태 UI — VM Agent 실행 안내 표시 및 10초 자동 갱신
 
 초기에는 별도 Service Portal로 제공한다. 기존 SOLID Cloud 관리 화면 직접 통합은 운영 플랫폼 수정 권한 확보 이후 검토한다.
 
@@ -139,23 +140,26 @@ Quick Tunnel은 임의의 `trycloudflare.com` 주소를 발급한다. 고정된 
 - [ ] 영속 저장소 도입
 - [ ] 고정 공개 도메인 또는 자체 Gateway 검토
 
-## 당장 구현할 MVP 범위
+## 현재 구현 완료 요약
 
-첫 구현은 **1단계 Service Registry API와 2단계 웹 포털 기본 화면**까지로 제한한다.
+1단계(Service Registry API), 2단계(웹 포털 MVP), 3단계(VM Agent 외부 공개 MVP)가 완료되었다.
 
 ```text
-포함:
+완료:
 - 기존 Colab 연결 기능 유지
 - 서비스 등록·조회·수정·삭제
-- 접근 범위와 상태 표시
-- DNS와 터널 연동 인터페이스
-- API 테스트
+- PENDING 기반 publish 흐름 (publish → PENDING → Agent TUNNEL_READY → PUBLIC)
+- VM Agent CLI (slink agent start) — 실제 Cloudflare Quick Tunnel 동작
+- owner 기반 Agent 격리 (instanceId + ownerId 복합 키)
+- orphan CLOSE_TUNNEL — 서비스 삭제 후에도 터널 종료 명령 전달
+- PENDING 상태 포털 UI, 10초 자동 갱신
+- 통합 테스트 49개
 
-제외:
-- 실제 내부 DNS 배포
-- 실제 Cloudflare Tunnel 원격 제어
-- CloudStack API 연동
-- 팀 네트워크 권한 강제
+남아있는 것:
+- 실제 내부 DNS 배포 — SOLID 운영 환경의 DNS 설정 권한 확인 후 진행
+- CloudStack API 연동 (VM 소유권 검증)
+- 영속 저장소 (재시작 시 서비스 목록 유지)
+- 학생별 공개 서비스 개수 제한
 ```
 
-이 범위가 완료되면 VM Agent 기반 외부 공개를 먼저 연결하고, 내부 DNS는 SOLID 운영 환경의 DNS 설정 권한을 확인한 뒤 구현한다.
+다음은 4단계(내부 DNS)와 5단계(운영 기능)이며, 교수님 미팅에서 운영 정책·자원 확보 논의 후 진행한다.

@@ -357,7 +357,7 @@ SOLID VM           → Relay 서버   ← VPN으로 가능
 
 ## Service Portal (구현 중)
 
-로드맵 1~2단계 구현 완료:
+로드맵 1~3단계 구현 완료:
 
 - [x] `Service` 모델 및 저장소 (`ServiceEntry`, 인메모리)
 - [x] 서비스 CRUD API (`/api/services/*`)
@@ -369,16 +369,19 @@ SOLID VM           → Relay 서버   ← VPN으로 가능
 - [x] DNS·터널 인터페이스 분리 (`DnsProvider`, `TunnelProvider`) + 모의 구현
 - [x] Service Portal 웹 UI (`/portal/index.html`)
 - [x] 기존 API 회귀 테스트 + Service API 통합 테스트
+- [x] VM Agent 등록 및 heartbeat (`/api/agents/register`, `/heartbeat`)
+- [x] VM Agent 기반 Cloudflare Quick Tunnel 생성·종료
+- [x] SOLID VM 실제 왕복 테스트 완료 (`localhost:3000` → `trycloudflare.com`)
 
-미완료 (모의 구현):
+미완료:
 
 - [ ] 실제 내부 DNS 연동 (SOLID 운영 환경 DNS 설정 권한 확인 후 진행)
-- [ ] VM Agent 기반 실제 Cloudflare Tunnel 원격 제어
 - [ ] CloudStack API 연동 (VM 소유권 검증) — 완료 전까지 실제 TunnelProvider 비활성
+- [ ] 영속 저장소 도입 (서버 재시작 후 서비스 목록 유지)
+- [ ] 학생별 공개 서비스 개수 및 TTL 정책 적용
 
 ## 다음 단계
 
-- [ ] SOLID VM에서 Cloudflare Quick Tunnel 왕복 테스트 (사전 검증)
 - [ ] VM 간 임의 포트 접근 가능 여부 확인
 - [ ] 내부 DNS 설정 권한 및 운영 정책 확인
 - [ ] Relay 서버 장기 운영 방안 논의 (Railway 유지 vs 학교 공개 서버)

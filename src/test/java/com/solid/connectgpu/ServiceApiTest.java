@@ -335,6 +335,35 @@ class ServiceApiTest {
                 .andExpect(jsonPath("$.publicUrl").doesNotExist()); // URL 없음
     }
 
+    // ── publish 중복 호출 — 상태 일관성 ──────────────────────────────────────
+
+    @Test
+    void publish_calledTwice_stillPending() throws Exception {
+        // publish를 두 번 연속 호출해도 scopeBeforePublish가 덮어써지지 않고 PENDING 유지
+        String id = idOf(createService("pub-twice"));
+
+        mvc.perform(post("/api/services/" + id + "/publish")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"ttlHours\":2}")
+                .header("Authorization", "Bearer " + apiKey));
+
+        mvc.perform(post("/api/services/" + id + "/publish")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"ttlHours\":4}")
+                        .header("Authorization", "Bearer " + apiKey))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PENDING"))
+                .andExpect(jsonPath("$.pendingCommand").value("OPEN_TUNNEL"))
+                .andExpect(jsonPath("$.scope").value("INTERNAL")); // scope 변경 없음
+
+        // 그 후 unpublish → scope가 INTERNAL로 정확히 복원되는지 확인
+        mvc.perform(delete("/api/services/" + id + "/publish")
+                        .header("Authorization", "Bearer " + apiKey))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.scope").value("INTERNAL"))
+                .andExpect(jsonPath("$.pendingCommand").value("NONE"));
+    }
+
     // ── TTL 범위 클램핑 ──────────────────────────────────────────────────────
 
     @Test

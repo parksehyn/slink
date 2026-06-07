@@ -388,6 +388,34 @@ class AgentApiTest {
                 .andExpect(jsonPath("$.pendingCommand").value("CLOSE_TUNNEL"));
     }
 
+    // ── 5. TUNNEL_READY가 PENDING이 아닌 서비스에 도착하면 무시됨 ─────────────
+
+    @Test
+    void report_tunnelReady_whenNotPending_isIgnored() throws Exception {
+        String svcJson = createSvc("not-pending-svc", "solid-np-01", 12000);
+        String svcId   = JsonPath.read(svcJson, "$.id");
+
+        String agentJson  = registerAgent("solid-np-01");
+        String agentId    = JsonPath.read(agentJson, "$.agentId");
+        String agentToken = JsonPath.read(agentJson, "$.agentToken");
+
+        // publish 하지 않았으므로 pendingCommand == NONE
+        mvc.perform(post("/api/agents/" + agentId + "/report")
+                        .header("X-Agent-Token", agentToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"serviceId\":\"" + svcId + "\","
+                                + "\"event\":\"TUNNEL_READY\","
+                                + "\"publicUrl\":\"https://stale-report.trycloudflare.com\"}"))
+                .andExpect(status().isOk()); // 200 반환하되 서비스 상태는 변경 없음
+
+        mvc.perform(get("/api/services/" + svcId)
+                        .header("Authorization", "Bearer " + apiKey))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.scope").value("INTERNAL"))
+                .andExpect(jsonPath("$.status").value("UNKNOWN"))
+                .andExpect(jsonPath("$.publicUrl").doesNotExist());
+    }
+
     // ── P1: 삭제된 서비스의 orphan close는 같은 owner에게만 전달됨 ────────────
 
     @Test

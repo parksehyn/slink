@@ -4,6 +4,7 @@
 import argparse
 import json
 import os
+import shutil
 import signal
 import sys
 import threading
@@ -108,8 +109,15 @@ def cmd_init(args):
     print(f"[slink] API Key: {api_key}")
     print(f"[slink] 설정 저장: {SLINKRC}")
     print()
-    print("  다음 단계: Colab 좌측 🔑 → 새 보안 비밀 추가")
+    print("  [Colab GPU 연결]")
+    print("  Colab 좌측 🔑 → 새 보안 비밀 추가")
     print(f"  이름: SLINK_API_KEY  /  값: {api_key}")
+    print()
+    print("  [서비스 포털]")
+    print(f"  {relay_url}/portal/")
+    print()
+    print("  [VM 서비스 외부 공개]")
+    print("  SOLID VM에서: slink agent start --instance-id <solid-XXXX>")
 
 
 def cmd_whoami(args):
@@ -407,8 +415,10 @@ def _start_cloudflared(local_port: int, timeout: int = 30):
             bufsize=1,
         )
     except FileNotFoundError:
-        print("[slink-agent] 오류: cloudflared 를 찾을 수 없습니다.")
-        print("[slink-agent]   설치: curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o cloudflared && chmod +x cloudflared && sudo mv cloudflared /usr/local/bin/")
+        print("[slink-agent] 오류: cloudflared 가 설치되어 있지 않습니다.")
+        print("[slink-agent]   설치 방법 (Linux amd64):")
+        print("[slink-agent]     wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -O /tmp/cloudflared")
+        print("[slink-agent]     chmod +x /tmp/cloudflared && sudo mv /tmp/cloudflared /usr/local/bin/cloudflared")
         return None, None
 
     def _reader():
@@ -496,8 +506,20 @@ def cmd_agent_start(args):
     _agent_save_state({"agentId": agent_id, "agentToken": agent_token,
                        "instanceId": instance_id, "relayUrl": relay_url})
 
-    print(f"[slink-agent] 등록 완료: agentId={agent_id}")
-    print(f"[slink-agent] Cloudflare 터널 명령을 {AGENT_POLL_INTERVAL}초마다 확인합니다. Ctrl+C 로 종료.")
+    if not shutil.which("cloudflared"):
+        print()
+        print("[slink-agent] 경고: cloudflared 가 PATH에 없습니다. OPEN_TUNNEL 명령 수신 시 터널을 열 수 없습니다.")
+        print("[slink-agent]   설치 방법 (Linux amd64):")
+        print("[slink-agent]     wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -O /tmp/cloudflared")
+        print("[slink-agent]     chmod +x /tmp/cloudflared && sudo mv /tmp/cloudflared /usr/local/bin/cloudflared")
+
+    print()
+    print("─" * 58)
+    print(f"  Agent ID   {agent_id}")
+    print(f"  인스턴스   {instance_id}")
+    print(f"  Relay      {relay_url}")
+    print(f"  Heartbeat  {AGENT_POLL_INTERVAL}초 간격  |  Ctrl+C 로 종료")
+    print("─" * 58)
     print()
 
     # {serviceId: (cloudflared_process, public_url)}
