@@ -20,13 +20,16 @@ public class UserController {
     }
 
     @PostMapping("/register")
-    @ResponseStatus(HttpStatus.CREATED)
-    public UserRegisterResponse register(@RequestBody UserRegisterRequest req) {
-        return userService.register(req);
+    public ResponseEntity<?> register(@RequestBody UserRegisterRequest req) {
+        try {
+            return ResponseEntity.status(HttpStatus.CREATED).body(userService.register(req));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(e.getMessage());
+        }
     }
 
     @GetMapping("/me")
-    public ResponseEntity<UserMeResponse> me(@RequestHeader("Authorization") String auth) {
+    public ResponseEntity<UserMeResponse> me(@RequestHeader(value = "Authorization", required = false) String auth) {
         if (auth == null || !auth.startsWith("Bearer ")) return ResponseEntity.status(401).build();
         User user = userService.findByApiKey(auth.substring(7));
         if (user == null) return ResponseEntity.status(401).build();

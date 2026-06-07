@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>서비스 추가 — SOLID Service Portal</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+         background: #f8fafc; color: #1e293b; }
+  header { background: #1a2332; color: #fff; padding: 14px 24px;
+           display: flex; align-items: center; gap: 12px; }
+  header a { color: #94a3b8; font-size: 14px; text-decoration: none; }
+  header a:hover { color: #fff; }
+  header h1 { font-size: 18px; font-weight: 600; }
+  .container { max-width: 560px; margin: 32px auto; padding: 0 20px; }
+  .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 28px; }
+  h2 { font-size: 16px; font-weight: 600; margin-bottom: 20px; }
+  .form-group { margin-bottom: 16px; }
+  label { display: block; font-size: 13px; color: #475569; margin-bottom: 4px; font-weight: 500; }
+  input, select { width: 100%; border: 1px solid #cbd5e1; border-radius: 6px;
+                  padding: 8px 12px; font-size: 14px; outline: none; background: #fff; }
+  input:focus, select:focus { border-color: #2563eb; }
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .btn { display: inline-block; padding: 10px 20px; border-radius: 6px;
+         border: none; cursor: pointer; font-size: 14px; font-weight: 500; }
+  .btn-primary { background: #2563eb; color: #fff; }
+  .btn-primary:hover { background: #1d4ed8; }
+  .btn-outline { background: #fff; color: #374151; border: 1px solid #d1d5db; }
+  .actions { display: flex; gap: 10px; margin-top: 24px; }
+  #error { color: #dc2626; font-size: 13px; margin-top: 12px; display: none; }
+  .hint { font-size: 12px; color: #94a3b8; margin-top: 3px; }
+  .scope-desc { font-size: 12px; color: #64748b; margin-top: 6px; padding: 8px;
+                background: #f8fafc; border-radius: 4px; }
+</style>
+</head>
+<body>
+<header>
+  <a href="/portal/index.html">← 목록</a>
+  <h1>서비스 추가</h1>
+</header>
+<div class="container">
+  <div class="card">
+    <h2>새 서비스 등록</h2>
+    <div class="form-group">
+      <label for="name">서비스 이름</label>
+      <input id="name" type="text" placeholder="team-demo" autocomplete="off">
+      <p class="hint">소문자·숫자·하이픈만 허용 (예: team-demo, api-v1)</p>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label for="instanceId">인스턴스 ID</label>
+        <input id="instanceId" type="text" placeholder="solid-32211690">
+      </div>
+      <div class="form-group">
+        <label for="privateIp">VM 사설 IP</label>
+        <input id="privateIp" type="text" placeholder="10.0.10.89">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label for="localPort">로컬 포트</label>
+        <input id="localPort" type="number" placeholder="3000" min="1" max="65535">
+      </div>
+      <div class="form-group">
+        <label for="protocol">프로토콜</label>
+        <select id="protocol">
+          <option value="HTTP">HTTP</option>
+          <option value="HTTPS">HTTPS</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-group">
+      <label for="scope">접근 범위</label>
+      <select id="scope" onchange="updateScopeHint()">
+        <option value="PRIVATE">비공개 (PRIVATE)</option>
+        <option value="INTERNAL" selected>SOLID 내부망 (INTERNAL)</option>
+        <option value="TEAM">팀 (TEAM)</option>
+      </select>
+      <div class="scope-desc" id="scope-desc">
+        SOLID VPN 사용자가 내부 주소로 접근합니다. (DNS는 현재 모의 구현)
+      </div>
+      <p class="hint">인터넷 공개(PUBLIC)는 서비스 생성 후 상세 화면의 <strong>외부 공개 시작</strong> 버튼으로 설정합니다.</p>
+    </div>
+    <div class="actions">
+      <button class="btn btn-primary" onclick="submit()">서비스 생성</button>
+      <a href="/portal/index.html" class="btn btn-outline">취소</a>
+    </div>
+    <p id="error"></p>
+  </div>
+</div>
+
+<script src="portal.js"></script>
+<script>
+const SCOPE_HINTS = {
+    PRIVATE:  '포털에만 등록됩니다. 공유 주소가 생성되지 않습니다.',
+    INTERNAL: 'SOLID VPN 사용자가 내부 주소로 접근합니다. (DNS는 현재 모의 구현)',
+    TEAM:     '지정 팀원이 내부 주소로 접근합니다. (네트워크 격리는 미구현, 목록 공유 수준)',
+};
+
+function updateScopeHint() {
+    const scope = document.getElementById('scope').value;
+    document.getElementById('scope-desc').textContent = SCOPE_HINTS[scope];
+}
+
+async function submit() {
+    const name = document.getElementById('name').value.trim();
+    const instanceId = document.getElementById('instanceId').value.trim();
+    const privateIp = document.getElementById('privateIp').value.trim();
+    const localPort = parseInt(document.getElementById('localPort').value);
+    const protocol = document.getElementById('protocol').value;
+    const scope = document.getElementById('scope').value;
+
+    const errEl = document.getElementById('error');
+    errEl.style.display = 'none';
+
+    const res = await apiFetch('/api/services', {
+        method: 'POST',
+        body: JSON.stringify({ name, instanceId, privateIp, localPort, protocol, scope })
+    });
+
+    if (res.ok) {
+        const svc = await res.json();
+        location.href = '/portal/detail.html?id=' + svc.id;
+    } else {
+        const msg = await res.text();
+        errEl.textContent = msg || '서비스 생성 실패';
+        errEl.style.display = 'block';
+    }
+}
+
+async function init() {
+    const ok = await requireAuth();
+    if (!ok) return;
+}
+init();
+</script>
+</body>
+</html>

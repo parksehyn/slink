@@ -10,18 +10,29 @@ import java.security.SecureRandom;
 import java.util.HexFormat;
 import java.util.concurrent.ConcurrentHashMap;
 
+// TODO: Replace email/studentId self-assertion with SOLID SSO or LDAP federation.
+//       Until then, any student can register any email address — there is no institutional
+//       proof of identity.
 @Service
 public class UserService {
 
     private final ConcurrentHashMap<String, User> usersByEmail = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, String> apiKeyToEmail = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, String> studentIdToEmail = new ConcurrentHashMap<>();
     private final BCryptPasswordEncoder encoder = new BCryptPasswordEncoder();
     private final SecureRandom random = new SecureRandom();
 
     public UserRegisterResponse register(UserRegisterRequest req) {
+        if (usersByEmail.containsKey(req.email()))
+            throw new IllegalArgumentException("Email already registered: " + req.email());
+        if (studentIdToEmail.containsKey(req.studentId()))
+            throw new IllegalArgumentException("Student ID already registered: " + req.studentId());
+
         String rawKey = generateApiKey();
         String hash = encoder.encode(rawKey);
-        usersByEmail.put(req.email(), new User(req.studentId(), req.email(), hash));
+        User user = new User(req.studentId(), req.email(), hash);
+        usersByEmail.put(req.email(), user);
+        studentIdToEmail.put(req.studentId(), req.email());
         apiKeyToEmail.put(rawKey, req.email());
         return new UserRegisterResponse(req.studentId(), req.email(), rawKey);
     }

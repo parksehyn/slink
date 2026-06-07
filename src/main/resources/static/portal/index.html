@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SOLID Service Portal</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+         background: #f8fafc; color: #1e293b; }
+  header { background: #1a2332; color: #fff; padding: 14px 24px;
+           display: flex; align-items: center; justify-content: space-between; }
+  header h1 { font-size: 18px; font-weight: 600; letter-spacing: .5px; }
+  header span { font-size: 13px; opacity: .7; }
+  .notice { background: #fef3c7; border-left: 4px solid #d97706;
+            padding: 10px 20px; font-size: 13px; color: #92400e; }
+  .container { max-width: 960px; margin: 32px auto; padding: 0 20px; }
+  .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px;
+          padding: 28px; }
+  h2 { font-size: 16px; font-weight: 600; margin-bottom: 16px; }
+  label { display: block; font-size: 13px; color: #475569; margin-bottom: 4px; }
+  input { width: 100%; border: 1px solid #cbd5e1; border-radius: 6px;
+          padding: 8px 12px; font-size: 14px; margin-bottom: 12px; outline: none; }
+  input:focus { border-color: #2563eb; }
+  .btn { display: inline-block; padding: 8px 16px; border-radius: 6px;
+         border: none; cursor: pointer; font-size: 14px; font-weight: 500; }
+  .btn-primary { background: #2563eb; color: #fff; }
+  .btn-primary:hover { background: #1d4ed8; }
+  .btn-outline { background: #fff; color: #374151; border: 1px solid #d1d5db; }
+  .btn-outline:hover { background: #f9fafb; }
+  .btn-danger { background: #dc2626; color: #fff; }
+  .btn-sm { padding: 5px 10px; font-size: 12px; }
+  #error { color: #dc2626; font-size: 13px; margin-top: 8px; display: none; }
+  .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th { text-align: left; padding: 10px 12px; background: #f1f5f9;
+       font-size: 12px; color: #64748b; font-weight: 600; text-transform: uppercase; }
+  td { padding: 10px 12px; border-top: 1px solid #f1f5f9; vertical-align: middle; }
+  tr:hover td { background: #fafafa; }
+  a { color: #2563eb; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  #logout { font-size: 13px; color: #94a3b8; cursor: pointer; background: none;
+            border: none; padding: 0; }
+  #logout:hover { color: #fff; }
+  .empty { color: #94a3b8; font-size: 14px; text-align: center; padding: 32px 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>SOLID Service Portal</h1>
+  <span id="user-info"></span>
+  &nbsp;
+  <button id="logout" onclick="doLogout()">로그아웃</button>
+</header>
+<div class="notice">
+  ⚠️ 내부 DNS는 현재 모의(mock) 구현입니다. 외부 공개(PUBLIC)는 SOLID VM에서 <code>slink agent start</code>를 실행해야 실제 Cloudflare 터널이 생성됩니다.
+</div>
+
+<!-- 로그인 폼 -->
+<div class="container" id="login-section">
+  <div class="card" style="max-width:420px;margin:0 auto">
+    <h2>API Key 로그인</h2>
+    <p style="font-size:13px;color:#64748b;margin-bottom:16px">
+      <code>slink init</code> 으로 발급받은 API Key를 입력하세요.
+    </p>
+    <label for="api-key">API Key</label>
+    <input type="password" id="api-key" placeholder="sk-dku-..." autocomplete="off">
+    <button class="btn btn-primary" onclick="doLogin()" style="width:100%">로그인</button>
+    <p id="error">API Key가 올바르지 않습니다.</p>
+  </div>
+</div>
+
+<!-- 서비스 목록 -->
+<div class="container" id="main-section" style="display:none">
+  <div class="card">
+    <div class="toolbar">
+      <h2 style="margin:0">내 서비스</h2>
+      <a href="/portal/add.html" class="btn btn-primary btn-sm">+ 서비스 추가</a>
+    </div>
+    <div id="service-list"></div>
+  </div>
+</div>
+
+<script src="portal.js"></script>
+<script>
+async function init() {
+    if (getApiKey()) {
+        const ok = await requireAuth();
+        if (ok) showMain();
+    }
+}
+
+async function doLogin() {
+    const key = document.getElementById('api-key').value.trim();
+    if (!key) return;
+    const res = await fetch('/api/users/me', {
+        headers: { Authorization: 'Bearer ' + key }
+    });
+    if (!res.ok) {
+        document.getElementById('error').style.display = 'block';
+        return;
+    }
+    const user = await res.json();
+    setAuth(key, user.email);
+    showMain();
+}
+
+function doLogout() { clearAuth(); location.reload(); }
+
+function showMain() {
+    document.getElementById('login-section').style.display = 'none';
+    document.getElementById('main-section').style.display = 'block';
+    document.getElementById('user-info').textContent = getEmail() || '';
+    loadServices();
+}
+
+async function loadServices() {
+    const res = await apiFetch('/api/services');
+    const services = await res.json();
+    const el = document.getElementById('service-list');
+
+    if (!services.length) {
+        el.innerHTML = '<p class="empty">등록된 서비스가 없습니다. 서비스를 추가해보세요.</p>';
+        return;
+    }
+
+    const rows = services.map(s => `
+      <tr>
+        <td><a href="/portal/detail.html?id=${s.id}">${s.name}</a></td>
+        <td>${s.instanceId}</td>
+        <td>${s.localPort}</td>
+        <td>${scopeBadge(s.scope)}</td>
+        <td>${statusBadge(s.status)}</td>
+        <td>${s.publicExpiresAt ? formatExpiry(s.publicExpiresAt) : '—'}</td>
+        <td><a href="/portal/detail.html?id=${s.id}" class="btn btn-outline btn-sm">상세</a></td>
+      </tr>`).join('');
+
+    el.innerHTML = `
+      <table>
+        <thead>
+          <tr>
+            <th>이름</th><th>인스턴스</th><th>포트</th>
+            <th>범위</th><th>상태</th><th>공개 만료</th><th></th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+}
+
+init();
+</script>
+</body>
+</html>

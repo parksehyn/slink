@@ -1,5 +1,7 @@
 # Solid-Link 학생 사용 설계 — A안 (Colab 기반)
 
+> 이 문서는 Colab GPU 연결 설계(A안) 기록입니다. 구현은 완료된 상태이며, Service Portal 확장 설계는 [service-portal-design.md](service-portal-design.md)를 참조하세요.
+
 > Colab을 GPU 백엔드로 유지하면서 학생 입력 마찰을 본질적 하한선까지 줄이는 설계.
 
 ## 설계 원칙

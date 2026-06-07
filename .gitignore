@@ -39,6 +39,16 @@ out/
 ### Python ###
 __pycache__/
 *.py[cod]
+agents/slink/dist/
+agents/slink/slink_cli.egg-info/
+agents/slink/*.egg-info/
+
+### Jupyter (임시 파일) ###
+1.ipynb
+
+### Local test artifacts ###
+tmp-*
+tools/
 
 ### Claude ###
 .claude/settings.local.json

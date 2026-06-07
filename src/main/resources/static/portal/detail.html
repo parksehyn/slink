@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>서비스 상세 — SOLID Service Portal</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+         background: #f8fafc; color: #1e293b; }
+  header { background: #1a2332; color: #fff; padding: 14px 24px;
+           display: flex; align-items: center; gap: 12px; }
+  header a { color: #94a3b8; font-size: 14px; text-decoration: none; }
+  header a:hover { color: #fff; }
+  header h1 { font-size: 18px; font-weight: 600; }
+  .notice { background: #fef3c7; border-left: 4px solid #d97706;
+            padding: 10px 20px; font-size: 13px; color: #92400e; }
+  .container { max-width: 680px; margin: 32px auto; padding: 0 20px; }
+  .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px;
+          padding: 28px; margin-bottom: 20px; }
+  h2 { font-size: 16px; font-weight: 600; margin-bottom: 20px; }
+  .field { display: grid; grid-template-columns: 160px 1fr; gap: 8px;
+           padding: 10px 0; border-bottom: 1px solid #f1f5f9; align-items: center; }
+  .field:last-child { border-bottom: none; }
+  .field-label { font-size: 13px; color: #64748b; font-weight: 500; }
+  .field-value { font-size: 14px; word-break: break-all; }
+  .btn { display: inline-block; padding: 8px 16px; border-radius: 6px;
+         border: none; cursor: pointer; font-size: 14px; font-weight: 500; }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  .btn-primary { background: #2563eb; color: #fff; }
+  .btn-primary:hover:not(:disabled) { background: #1d4ed8; }
+  .btn-danger { background: #dc2626; color: #fff; }
+  .btn-danger:hover:not(:disabled) { background: #b91c1c; }
+  .btn-outline { background: #fff; color: #374151; border: 1px solid #d1d5db; }
+  .btn-outline:hover:not(:disabled) { background: #f9fafb; }
+  .btn-warn { background: #d97706; color: #fff; }
+  .btn-warn:hover:not(:disabled) { background: #b45309; }
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; }
+  .section-title { font-size: 13px; font-weight: 600; color: #64748b;
+                   text-transform: uppercase; margin-bottom: 12px; letter-spacing: .5px; }
+  select, input { border: 1px solid #cbd5e1; border-radius: 6px;
+                  padding: 6px 10px; font-size: 14px; outline: none; }
+  select:focus, input:focus { border-color: #2563eb; }
+  #msg { font-size: 13px; margin-top: 10px; color: #16a34a; display: none; }
+  code { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
+  .pending-box { background: #fffbeb; border: 1px solid #fcd34d; border-radius: 6px;
+                 padding: 12px 16px; font-size: 13px; color: #92400e; margin-bottom: 12px; }
+  .pending-box code { background: #fef3c7; }
+  .stopping-box { background: #fef2f2; border: 1px solid #fca5a5; border-radius: 6px;
+                  padding: 12px 16px; font-size: 13px; color: #991b1b; margin-bottom: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <a href="/portal/index.html">← 목록</a>
+  <h1 id="page-title">서비스 상세</h1>
+</header>
+<div class="notice">
+  ⚠️ 내부 DNS는 현재 모의(mock) 구현입니다. 외부 공개는 SOLID VM에서 <code>slink agent start</code>를 실행해야 실제 Cloudflare 터널이 생성됩니다.
+</div>
+
+<div class="container" id="main" style="display:none">
+  <!-- 기본 정보 -->
+  <div class="card">
+    <p class="section-title">기본 정보</p>
+    <div class="field"><span class="field-label">이름</span>
+      <span class="field-value" id="f-name"></span></div>
+    <div class="field"><span class="field-label">인스턴스</span>
+      <span class="field-value" id="f-instance"></span></div>
+    <div class="field"><span class="field-label">로컬 포트</span>
+      <span class="field-value" id="f-port"></span></div>
+    <div class="field"><span class="field-label">프로토콜</span>
+      <span class="field-value" id="f-protocol"></span></div>
+    <div class="field"><span class="field-label">접근 범위</span>
+      <span class="field-value" id="f-scope"></span></div>
+    <div class="field"><span class="field-label">상태</span>
+      <span class="field-value" id="f-status"></span></div>
+  </div>
+
+  <!-- 주소 -->
+  <div class="card">
+    <p class="section-title">주소</p>
+    <div class="field">
+      <span class="field-label">내부 주소 <span style="color:#d97706;font-size:11px">(모의)</span></span>
+      <span class="field-value"><code id="f-internal"></code></span>
+    </div>
+    <div class="field">
+      <span class="field-label">공개 URL</span>
+      <span class="field-value" id="f-public">—</span>
+    </div>
+    <div class="field"><span class="field-label">공개 만료</span>
+      <span class="field-value" id="f-expiry">—</span></div>
+  </div>
+
+  <!-- 범위 변경 -->
+  <div class="card">
+    <p class="section-title">접근 범위 변경</p>
+    <div id="scope-change-public-notice" style="display:none;font-size:13px;color:#92400e;
+         background:#fef3c7;border-left:3px solid #d97706;padding:8px 12px;border-radius:4px;margin-bottom:10px">
+      현재 인터넷에 공개 중입니다. 범위를 변경하면 공개 터널 종료 명령이 전송됩니다.
+    </div>
+    <div style="display:flex;gap:10px;align-items:center">
+      <select id="new-scope">
+        <option value="PRIVATE">비공개 (PRIVATE)</option>
+        <option value="INTERNAL">SOLID 내부망 (INTERNAL)</option>
+        <option value="TEAM">팀 (TEAM)</option>
+      </select>
+      <button class="btn btn-outline" onclick="changeScope()">변경</button>
+    </div>
+    <p style="font-size:12px;color:#94a3b8;margin-top:8px">
+      인터넷 공개(PUBLIC)는 아래 <strong>외부 공개 시작</strong> 버튼으로만 설정됩니다.
+    </p>
+  </div>
+
+  <!-- 외부 공개 -->
+  <div class="card" id="publish-card">
+    <p class="section-title">외부 공개</p>
+
+    <!-- PENDING 상태 안내 -->
+    <div id="pending-box" class="pending-box" style="display:none">
+      <strong>⏳ VM Agent에서 터널을 여는 중…</strong><br>
+      SOLID VM에서 아래 명령으로 Agent를 실행하세요:<br>
+      <code>slink agent start --instance-id <span id="pending-instance"></span></code><br>
+      <br>
+      Agent가 Cloudflare Quick Tunnel을 생성하면 공개 URL이 표시됩니다.
+      이 페이지는 10초마다 자동으로 갱신됩니다.
+    </div>
+
+    <!-- CLOSE_TUNNEL 명령 대기 안내 -->
+    <div id="stopping-box" class="stopping-box" style="display:none">
+      <strong>⏹ VM Agent에서 터널을 종료하는 중…</strong><br>
+      Agent의 다음 heartbeat에서 종료 명령이 처리됩니다.
+    </div>
+
+    <!-- 공개 시작 폼 -->
+    <div id="publish-form" style="display:flex;gap:10px;align-items:center;margin-bottom:8px">
+      <input type="number" id="ttl" value="8" min="1" max="24" style="width:80px">
+      <span style="font-size:13px;color:#64748b">시간 동안 공개</span>
+      <button class="btn btn-primary" id="publish-btn" onclick="doPublish()">공개 시작</button>
+    </div>
+    <button class="btn btn-warn" id="unpublish-btn" style="display:none" onclick="doUnpublish()">공개 종료</button>
+  </div>
+
+  <!-- 위험 구역 -->
+  <div class="card">
+    <p class="section-title">서비스 삭제</p>
+    <p style="font-size:13px;color:#64748b;margin-bottom:12px">삭제하면 복구할 수 없습니다.</p>
+    <button class="btn btn-danger" onclick="doDelete()">서비스 삭제</button>
+  </div>
+
+  <p id="msg"></p>
+</div>
+
+<script src="portal.js"></script>
+<script>
+const params = new URLSearchParams(location.search);
+const serviceId = params.get('id');
+let currentService = null;
+let refreshTimer = null;
+
+async function init() {
+    const ok = await requireAuth();
+    if (!ok) return;
+    if (!serviceId) { location.href = '/portal/index.html'; return; }
+    await loadService();
+}
+
+async function loadService() {
+    const res = await apiFetch('/api/services/' + serviceId);
+    if (!res.ok) { location.href = '/portal/index.html'; return; }
+    currentService = await res.json();
+    render(currentService);
+    document.getElementById('main').style.display = 'block';
+}
+
+function render(s) {
+    document.getElementById('page-title').textContent = s.name;
+    document.getElementById('f-name').textContent = s.name;
+    document.getElementById('f-instance').textContent = s.instanceId;
+    document.getElementById('f-port').textContent = s.localPort;
+    document.getElementById('f-protocol').textContent = s.protocol;
+    document.getElementById('f-scope').innerHTML = scopeBadge(s.scope);
+    document.getElementById('f-status').innerHTML = statusBadge(s.status);
+    document.getElementById('f-internal').textContent = s.internalHostname;
+    document.getElementById('f-public').innerHTML = s.publicUrl
+        ? `<a href="${s.publicUrl}" target="_blank">${s.publicUrl}</a>` : '—';
+    document.getElementById('f-expiry').textContent = formatExpiry(s.publicExpiresAt);
+
+    const isPending    = s.pendingCommand === 'OPEN_TUNNEL';
+    const isStopping   = s.pendingCommand === 'CLOSE_TUNNEL';
+    const isPublic     = s.scope === 'PUBLIC';
+    const isPublishing = isPending || isPublic || isStopping;
+
+    document.getElementById('scope-change-public-notice').style.display = isPublic ? 'block' : 'none';
+    document.getElementById('new-scope').value = (isPublic || isPending) ? 'PRIVATE' : (s.scope || 'PRIVATE');
+
+    document.getElementById('pending-box').style.display  = isPending  ? 'block' : 'none';
+    document.getElementById('stopping-box').style.display = isStopping ? 'block' : 'none';
+    document.getElementById('pending-instance').textContent = s.instanceId;
+
+    document.getElementById('publish-form').style.display = isPublishing ? 'none' : 'flex';
+    document.getElementById('unpublish-btn').style.display = (isPublic || isPending) ? 'inline-block' : 'none';
+    document.getElementById('unpublish-btn').disabled = isStopping;
+
+    // Auto-refresh while pending or stopping so UI updates when agent responds
+    clearInterval(refreshTimer);
+    if (isPending || isStopping) {
+        refreshTimer = setInterval(loadService, 10_000);
+    }
+}
+
+async function changeScope() {
+    const scope = document.getElementById('new-scope').value;
+    const res = await apiFetch('/api/services/' + serviceId, {
+        method: 'PATCH',
+        body: JSON.stringify({ scope })
+    });
+    if (res.ok) { currentService = await res.json(); render(currentService); flash('범위가 변경되었습니다.'); }
+}
+
+async function doPublish() {
+    const ttlHours = parseInt(document.getElementById('ttl').value) || 8;
+    const res = await apiFetch('/api/services/' + serviceId + '/publish', {
+        method: 'POST',
+        body: JSON.stringify({ ttlHours })
+    });
+    if (res.ok) {
+        currentService = await res.json();
+        render(currentService);
+        flash('외부 공개 요청이 전송되었습니다. VM Agent가 터널을 여는 중입니다…');
+    }
+}
+
+async function doUnpublish() {
+    const res = await apiFetch('/api/services/' + serviceId + '/publish', { method: 'DELETE' });
+    if (res.ok) { currentService = await res.json(); render(currentService); flash('공개 종료 요청이 전송되었습니다.'); }
+}
+
+async function doDelete() {
+    if (!confirm(`"${currentService.name}" 서비스를 삭제할까요?`)) return;
+    const res = await apiFetch('/api/services/' + serviceId, { method: 'DELETE' });
+    if (res.ok) location.href = '/portal/index.html';
+}
+
+function flash(text) {
+    const el = document.getElementById('msg');
+    el.textContent = text;
+    el.style.display = 'block';
+    setTimeout(() => { el.style.display = 'none'; }, 4000);
+}
+
+init();
+</script>
+</body>
+</html>

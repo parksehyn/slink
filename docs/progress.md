@@ -36,7 +36,7 @@ SOLID Cloud VM(code-server 환경) ↔ Google Colab T4 GPU 연결을 **학생 �
 
 ---
 
-### v2 — Cloudflare Tunnel 방식 (적용 예정)
+### v2 — Cloudflare Tunnel 방식 (구현 완료)
 
 ```
 [Google Colab]
@@ -355,12 +355,33 @@ SOLID VM           → Relay 서버   ← VPN으로 가능
 
 ---
 
+## Service Portal (구현 중)
+
+로드맵 1~2단계 구현 완료:
+
+- [x] `Service` 모델 및 저장소 (`ServiceEntry`, 인메모리)
+- [x] 서비스 CRUD API (`/api/services/*`)
+- [x] 외부 공개 API (`POST/DELETE /api/services/{id}/publish`)
+- [x] `TunnelProvider` 인터페이스에서 `privateIp` 제거 — 터널 대상은 VM Agent loopback으로 제한
+- [x] publish/unpublish 시 scope 상태 일관성 보장 (pre-publish scope 복원)
+- [x] PUBLIC scope 직접 선택 차단 (create/update에서 400 반환)
+- [x] 이름 변경 시 `internalHostname`·DNS 레코드 갱신
+- [x] DNS·터널 인터페이스 분리 (`DnsProvider`, `TunnelProvider`) + 모의 구현
+- [x] Service Portal 웹 UI (`/portal/index.html`)
+- [x] 기존 API 회귀 테스트 + Service API 통합 테스트
+
+미완료 (모의 구현):
+
+- [ ] 실제 내부 DNS 연동 (SOLID 운영 환경 DNS 설정 권한 확인 후 진행)
+- [ ] VM Agent 기반 실제 Cloudflare Tunnel 원격 제어
+- [ ] CloudStack API 연동 (VM 소유권 검증) — 완료 전까지 실제 TunnelProvider 비활성
+
 ## 다음 단계
 
-- [ ] 교수님 미팅: Relay 서버 장기 운영 방안 논의 (Railway 유지 vs 학교 공개 서버)
-- [ ] SOLID 계정 연동 (`slink init` 없이 SOLID 로그인으로 자동 등록)
-- [ ] SOLID VM에서 `ms-toolsai.jupyter` 설치 가능 여부 확인
-- [ ] `slink reset` 명령 (API Key 재발급)
+- [ ] SOLID VM에서 Cloudflare Quick Tunnel 왕복 테스트 (사전 검증)
+- [ ] VM 간 임의 포트 접근 가능 여부 확인
+- [ ] 내부 DNS 설정 권한 및 운영 정책 확인
+- [ ] Relay 서버 장기 운영 방안 논의 (Railway 유지 vs 학교 공개 서버)
 
 ---
 

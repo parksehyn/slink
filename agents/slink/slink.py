@@ -375,6 +375,201 @@ def cmd_status(args):
     print(f"  URL  : {session['ngrokHost']}")
 
 
+# ── VM Agent (Service Portal 외부 공개) ──────────────────────────────────────
+
+AGENT_STATE = os.path.expanduser("~/.slink-agent.json")
+AGENT_POLL_INTERVAL = 10  # seconds
+
+
+def _agent_save_state(state: dict):
+    with open(AGENT_STATE, "w", encoding="utf-8") as f:
+        json.dump(state, f, ensure_ascii=False, indent=2)
+
+
+def _start_cloudflared(local_port: int, timeout: int = 30):
+    """cloudflared Quick Tunnel을 실행하고 trycloudflare.com URL을 반환합니다."""
+    import subprocess
+    import re
+    import threading
+
+    url_pattern = re.compile(r'https://[a-zA-Z0-9-]+\.trycloudflare\.com')
+    found_url = [None]
+    url_event = threading.Event()
+
+    try:
+        proc = subprocess.Popen(
+            ["cloudflared", "tunnel", "--url", f"http://localhost:{local_port}"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            bufsize=1,
+        )
+    except FileNotFoundError:
+        print("[slink-agent] 오류: cloudflared 를 찾을 수 없습니다.")
+        print("[slink-agent]   설치: curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o cloudflared && chmod +x cloudflared && sudo mv cloudflared /usr/local/bin/")
+        return None, None
+
+    def _reader():
+        for line in proc.stdout:
+            m = url_pattern.search(line)
+            if m:
+                found_url[0] = m.group(0)
+                url_event.set()
+        url_event.set()  # signal even if URL not found (process ended)
+
+    t = threading.Thread(target=_reader, daemon=True)
+    t.start()
+    url_event.wait(timeout=timeout)
+
+    if found_url[0]:
+        return proc, found_url[0]
+
+    proc.terminate()
+    return None, None
+
+
+def _agent_report(relay_url: str, agent_id: str, agent_token: str,
+                  service_id: str, event: str,
+                  public_url: str = None, reason: str = None) -> bool:
+    """Relay에 터널 이벤트를 보고한다. 성공 시 True, 실패 시 False를 반환한다."""
+    body = {"serviceId": service_id, "event": event}
+    if public_url:
+        body["publicUrl"] = public_url
+    if reason:
+        body["reason"] = reason
+    try:
+        resp = requests.post(
+            f"{relay_url}/api/agents/{agent_id}/report",
+            headers={"X-Agent-Token": agent_token},
+            json=body,
+            timeout=10,
+        )
+        resp.raise_for_status()
+        return True
+    except Exception as e:
+        status = getattr(getattr(e, "response", None), "status_code", None)
+        if status:
+            print(f"[slink-agent] 보고 실패 (serviceId={service_id}, event={event}, HTTP {status}): {e}")
+        else:
+            print(f"[slink-agent] 보고 실패 (serviceId={service_id}, event={event}): {e}")
+        return False
+
+
+def cmd_agent_start(args):
+    cfg = load_config()
+    relay_url = (args.relay or cfg.get("relay_url", RELAY_DEFAULT)).rstrip("/")
+    instance_id = args.instance_id
+
+    if not instance_id:
+        instance_id = cfg.get("instance_id", "")
+    if not instance_id:
+        print("[slink-agent] 오류: --instance-id 를 지정하거나 ~/.slinkrc에 instance_id를 저장하세요.")
+        print("[slink-agent]   예: slink agent start --instance-id solid-32211690")
+        sys.exit(1)
+
+    print(f"[slink-agent] 인스턴스: {instance_id}")
+    print(f"[slink-agent] Relay: {relay_url}")
+
+    api_key = cfg.get("api_key", "")
+    if not api_key:
+        print("[slink-agent] 오류: API Key가 없습니다. 먼저 'slink init' 을 실행하세요.")
+        sys.exit(1)
+
+    # Register this agent (Bearer auth ties the agent to the student's account)
+    try:
+        resp = requests.post(
+            f"{relay_url}/api/agents/register",
+            json={"instanceId": instance_id},
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=10,
+        )
+        resp.raise_for_status()
+    except requests.ConnectionError:
+        print(f"[slink-agent] 오류: Relay 서버에 연결할 수 없습니다 ({relay_url})")
+        sys.exit(1)
+
+    data = resp.json()
+    agent_id = data["agentId"]
+    agent_token = data["agentToken"]
+    _agent_save_state({"agentId": agent_id, "agentToken": agent_token,
+                       "instanceId": instance_id, "relayUrl": relay_url})
+
+    print(f"[slink-agent] 등록 완료: agentId={agent_id}")
+    print(f"[slink-agent] Cloudflare 터널 명령을 {AGENT_POLL_INTERVAL}초마다 확인합니다. Ctrl+C 로 종료.")
+    print()
+
+    # {serviceId: (cloudflared_process, public_url)}
+    active_tunnels: dict = {}
+
+    try:
+        while True:
+            try:
+                hb_resp = requests.post(
+                    f"{relay_url}/api/agents/{agent_id}/heartbeat",
+                    headers={"X-Agent-Token": agent_token},
+                    timeout=10,
+                )
+                if hb_resp.status_code == 401:
+                    print("[slink-agent] 인증 실패. 재시작이 필요합니다.")
+                    break
+                hb_resp.raise_for_status()
+
+                for cmd in hb_resp.json().get("commands", []):
+                    svc_id    = cmd["serviceId"]
+                    action    = cmd["action"]
+                    local_port = cmd["localPort"]
+
+                    if action == "OPEN_TUNNEL":
+                        if svc_id in active_tunnels:
+                            # Relay still shows PENDING — previous TUNNEL_READY report was lost.
+                            # Re-deliver the existing URL; tunnel itself stays open.
+                            _, existing_url = active_tunnels[svc_id]
+                            _agent_report(relay_url, agent_id, agent_token,
+                                          svc_id, "TUNNEL_READY", public_url=existing_url)
+                            continue
+                        print(f"[slink-agent] 터널 열기: {svc_id} → localhost:{local_port}")
+                        proc, url = _start_cloudflared(local_port)
+                        if url:
+                            active_tunnels[svc_id] = (proc, url)
+                            ok = _agent_report(relay_url, agent_id, agent_token,
+                                               svc_id, "TUNNEL_READY", public_url=url)
+                            if ok:
+                                print(f"[slink-agent] 터널 열림: {url}")
+                            else:
+                                # Report failed. Tunnel remains in active_tunnels so the
+                                # next heartbeat cycle re-sends TUNNEL_READY automatically.
+                                print(f"[slink-agent] 경고: TUNNEL_READY 보고 실패, 다음 heartbeat에서 재시도 ({url})")
+                        else:
+                            print(f"[slink-agent] 오류: 터널 URL 획득 실패 (serviceId={svc_id})")
+                            _agent_report(relay_url, agent_id, agent_token,
+                                          svc_id, "TUNNEL_FAILED", reason="URL not obtained from cloudflared")
+
+                    elif action == "CLOSE_TUNNEL":
+                        if svc_id in active_tunnels:
+                            proc, url = active_tunnels.pop(svc_id)
+                            proc.terminate()
+                            print(f"[slink-agent] 터널 종료: {svc_id}")
+                        _agent_report(relay_url, agent_id, agent_token, svc_id, "TUNNEL_STOPPED")
+
+            except KeyboardInterrupt:
+                raise
+            except Exception as e:
+                print(f"[slink-agent] 오류: {e}")
+
+            time.sleep(AGENT_POLL_INTERVAL)
+
+    except KeyboardInterrupt:
+        pass
+    finally:
+        print("\n[slink-agent] 종료 중 — 실행 중인 터널을 닫습니다...")
+        for svc_id, (proc, url) in list(active_tunnels.items()):
+            proc.terminate()
+            _agent_report(relay_url, agent_id, agent_token, svc_id, "TUNNEL_STOPPED")
+        print("[slink-agent] 종료됨.")
+
+
 # ── main ──────────────────────────────────────────────────────────────────────
 
 def main():
@@ -413,7 +608,26 @@ def main():
     # status
     sub.add_parser("status", help="현재 Colab 세션 상태 확인")
 
+    # agent
+    agent_p = sub.add_parser("agent", help="Service Portal VM Agent 관리")
+    agent_sub = agent_p.add_subparsers(dest="agent_command", required=True)
+    agent_start = agent_sub.add_parser("start", help="VM Agent 시작 (Service Portal 외부 공개)")
+    agent_start.add_argument(
+        "--instance-id", default=None, metavar="ID",
+        help="이 VM의 인스턴스 ID (예: solid-32211690). 생략 시 ~/.slinkrc의 instance_id 사용."
+    )
+    agent_start.add_argument(
+        "--relay", default=None, metavar="URL",
+        help=f"Relay 서버 주소 (기본값: ~/.slinkrc의 relay_url 또는 {RELAY_DEFAULT})"
+    )
+
     args = parser.parse_args()
+
+    if args.command == "agent":
+        if args.agent_command == "start":
+            cmd_agent_start(args)
+        return
+
     {
         "init": cmd_init,
         "whoami": cmd_whoami,
