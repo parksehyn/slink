@@ -115,7 +115,6 @@
       <select id="scope" onchange="updateScopeHint()">
         <option value="PRIVATE">비공개 (PRIVATE)</option>
         <option value="INTERNAL" selected>SOLID 내부망 (INTERNAL)</option>
-        <option value="TEAM">팀 (TEAM)</option>
       </select>
       <div class="scope-desc" id="scope-desc">
         SOLID VPN 사용자가 내부 주소로 접근합니다. (DNS는 현재 모의 구현)
@@ -137,7 +136,6 @@
 const SCOPE_HINTS = {
     PRIVATE:  '포털에만 등록됩니다. 공유 주소가 생성되지 않습니다.',
     INTERNAL: 'SOLID VPN 사용자가 내부 주소로 접근합니다. (DNS는 현재 모의 구현)',
-    TEAM:     '지정 팀원이 내부 주소로 접근합니다. (네트워크 격리는 미구현, 목록 공유 수준)',
 };
 
 function updateScopeHint() {

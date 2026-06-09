@@ -14,7 +14,7 @@
 Colab 서비스 → Cloudflare Tunnel → SOLID VM에서 사용
 
 확장:
-SOLID VM 서비스 → 내부 DNS 또는 Cloudflare Tunnel → 팀·외부에서 사용
+SOLID VM 서비스 → 내부 DNS 또는 Cloudflare Tunnel → 내부망·외부에서 사용
 ```
 
 학생은 DNS와 터널을 직접 관리하지 않는다.
@@ -36,7 +36,8 @@ VM 선택 → 포트 입력 → 접근 범위 선택 → 주소 공유
 
 - 본인이 등록한 서비스 목록과 상태 조회
 - VM, 포트, 서비스 이름을 선택하여 서비스 등록
-- `PRIVATE`, `INTERNAL`, `TEAM`, `PUBLIC` 접근 범위 관리
+- `PRIVATE`, `INTERNAL`, `PUBLIC` 접근 범위 관리
+- `TEAM` 범위는 팀/권한 모델 연동 이후 확장 후보로 보류
 - 외부 공개 TTL 설정과 즉시 종료
 - 관리자용 공개 서비스 조회 및 차단
 
@@ -45,7 +46,7 @@ VM 선택 → 포트 입력 → 접근 범위 선택 → 주소 공유
 - 서비스 등록 시 기억하기 쉬운 내부 이름 제공
 - VM IP 변경 시 이름은 유지하고 DNS 레코드 갱신
 - VM 삭제 시 관련 레코드 정리
-- 팀 및 네트워크별 조회 권한 적용
+- 팀 및 네트워크별 조회 권한은 후속 운영 정책으로 분리
 
 내부 DNS 적용에는 SOLID OpenVPN 클라이언트와 VM의 DNS 설정을 관리할 권한이 필요하다.
 
@@ -128,7 +129,7 @@ Quick Tunnel은 임의의 `trycloudflare.com` 주소를 발급한다. 고정된 
 - [ ] 내부 DNS 서버 기술 선택 및 배포
 - [ ] 서비스 생성·변경·삭제와 DNS 레코드 연동
 - [ ] OpenVPN 클라이언트와 SOLID VM의 DNS 설정 연동
-- [ ] 팀 및 Private Network별 조회 권한 적용
+- [ ] 팀 및 Private Network별 조회 권한 적용 (후속 확장)
 - [ ] VM IP 변경과 삭제에 따른 자동 갱신
 
 ### 5. 운영 기능

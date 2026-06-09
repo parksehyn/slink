@@ -81,10 +81,9 @@ VM: solid-32211690
 |------|-----------|-----------|
 | `PRIVATE` | 소유자 | 포털에만 등록, 공유 주소 없음 |
 | `INTERNAL` | SOLID 네트워크 사용자 | 내부 DNS → VM 사설 IP |
-| `TEAM` | 지정된 팀 | 내부 DNS + 팀 권한 정책 |
 | `PUBLIC` | 인터넷 사용자 | Cloudflare Tunnel → VM 로컬 서비스 |
 
-`TEAM` 범위의 실제 네트워크 격리는 SOLID 네트워크 정책과 DNS 조회 권한 연동이 필요하다. 연동 전 MVP에서는 팀 서비스 목록 공유 수준으로 제한한다.
+`TEAM` 범위는 팀 계정·권한·네트워크 정책이 준비된 뒤 추가한다. DNS만으로는 팀 단위 접근 제어를 강하게 보장하기 어렵기 때문에 MVP 화면에서는 노출하지 않는다.
 
 ## 5. 사용자 흐름
 
@@ -126,9 +125,9 @@ localhost:3000에서 애플리케이션 실행 중
 team-demo.32211690.solid.internal:3000
 ```
 
-### 5.3 내부 및 팀 공유
+### 5.3 내부 공유
 
-`INTERNAL` 또는 `TEAM` 서비스는 SOLID VPN 사용자와 SOLID VM이 내부 주소로 접근한다.
+`INTERNAL` 서비스는 SOLID VPN 사용자와 SOLID VM이 내부 주소로 접근한다.
 
 ```text
 클라이언트 → 내부 DNS 조회 → 10.0.10.89:3000
@@ -258,7 +257,7 @@ class Service {
     String privateIp;
     int localPort;
     Protocol protocol;       // HTTP, HTTPS
-    Scope scope;             // PRIVATE, INTERNAL, TEAM, PUBLIC
+    Scope scope;             // PRIVATE, INTERNAL, PUBLIC (TEAM은 후속 확장)
     ServiceStatus status;    // UNKNOWN, ONLINE, OFFLINE
     String internalHostname;
     String publicUrl;
@@ -287,7 +286,7 @@ class Service {
 ## 10. 보안 및 운영 원칙
 
 - 사용자는 자신이 소유하거나 허가받은 VM만 등록할 수 있어야 한다.
-- 서비스 이름과 내부 DNS 이름은 소유자·팀 단위로 충돌을 방지한다.
+- 서비스 이름과 내부 DNS 이름은 소유자 단위로 충돌을 방지한다.
 - 초기 외부 공개는 HTTP/HTTPS 서비스로 제한한다.
 - 외부 터널 대상은 해당 VM의 loopback 주소로 제한하여 다른 VM이나 SOLID 내부 시스템을 우회 접근하지 못하게 한다.
 - 공개 서비스는 기본 TTL을 가지며 학생별 동시 공개 개수를 제한한다.
@@ -334,7 +333,7 @@ class Service {
 
 - 내부 DNS 레코드 자동 생성·갱신·삭제
 - OpenVPN 및 VM DNS 설정 연동
-- 팀과 네트워크별 조회 권한 적용
+- 팀과 네트워크별 조회 권한 적용 (후속 확장)
 
 ## 13. 성공 기준
 
