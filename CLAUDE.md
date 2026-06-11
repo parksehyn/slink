@@ -71,4 +71,7 @@ docs/             설계·로드맵·진행 문서
 - [`docs/service-portal-design.md`](docs/service-portal-design.md) — Service Portal 상세 설계 (기준 문서)
 - [`docs/roadmap.md`](docs/roadmap.md) — 단계별 구현 계획
 - [`docs/progress.md`](docs/progress.md) — 구현 완료 기능 기록
+- [`docs/demo-theory.md`](docs/demo-theory.md) — 외부 공개(역방향 터널링) 데모 동작 이론
+- [`docs/demo-runbook.md`](docs/demo-runbook.md) — 데모 실행 순서(재배포 후 재셋업 포함) + 트러블슈팅
+- [`docs/internal-dns-requirements.md`](docs/internal-dns-requirements.md) — 내부 DNS 실연동에 필요한 권한·정보·정책
 - [`docs/design-a.md`](docs/design-a.md) — Colab 연결 설계 기록
