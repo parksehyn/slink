@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DNS Records — SOLID Service Portal</title>
+<link rel="stylesheet" href="solid-demo.css">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+         background: #f8fafc; color: #1e293b; }
+  .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 28px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th { text-align: left; padding: 10px 12px; background: #f1f5f9;
+       font-size: 12px; color: #64748b; font-weight: 600; text-transform: uppercase; }
+  td { padding: 10px 12px; border-top: 1px solid #f1f5f9; vertical-align: middle; }
+  tr:hover td { background: #fafafa; }
+  .empty { color: #94a3b8; font-size: 14px; text-align: center; padding: 32px 0; }
+  .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+  code { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
+  .rtype { background: #ede9fe; color: #6d28d9; padding: 2px 8px; border-radius: 4px;
+           font-size: 12px; font-weight: 600; }
+  .mock-badge { background: #fef9c3; color: #ca8a04; border: 1px solid #fde68a;
+                padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+  .status-wait { color: #ca8a04; font-weight: 600; }
+  .req-box { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px;
+             padding: 22px 24px; margin-top: 22px; }
+  .req-box h3 { font-size: 14px; color: #334155; margin-bottom: 12px; }
+  .req-box ol { margin: 0 0 0 18px; color: #475569; font-size: 14px; line-height: 1.9; }
+  #logout { font-size: 13px; color: #94a3b8; cursor: pointer; background: none;
+            border: none; padding: 0; }
+  #logout:hover { color: #fff; }
+</style>
+</head>
+<body>
+<div class="solid-shell">
+  <aside class="solid-sidebar">
+    <div class="solid-logo">
+      <div class="solid-logo-mark">DKU</div>
+      <div class="solid-logo-text">
+        <strong>단국대학교</strong>
+        <span>DANKOOK UNIVERSITY</span>
+      </div>
+    </div>
+    <nav class="solid-nav">
+      <a class="solid-nav-item" href="#">Dashboard</a>
+      <a class="solid-nav-item" href="#">Compute</a>
+      <a class="solid-nav-item" href="#">Storage</a>
+      <a class="solid-nav-item" href="#">Network</a>
+      <a class="solid-nav-item" href="/portal/index.html">Service Portal</a>
+      <a class="solid-nav-item active" href="/portal/dns.html">DNS Records</a>
+    </nav>
+  </aside>
+
+  <div class="solid-topbar">
+    <div class="solid-top-left">
+      <span class="solid-menu-icon">☰</span>
+      <select class="solid-view-select" aria-label="view">
+        <option>Default view</option>
+      </select>
+    </div>
+    <div class="solid-user">
+      <span id="user-info"></span>
+      <span class="solid-avatar">CE</span>
+      <button id="logout" onclick="doLogout()">로그아웃</button>
+    </div>
+  </div>
+
+  <main class="solid-content">
+    <div class="solid-page-title">
+      <div>
+        <h1>Internal DNS Records</h1>
+        <p>서비스 등록 시 플랫폼이 자동 생성하는 내부 DNS 레코드 현황입니다.</p>
+      </div>
+      <a href="/portal/index.html" class="btn btn-outline btn-sm">서비스 목록</a>
+    </div>
+
+    <div class="solid-note">
+      내부 DNS는 현재 <strong>모의(Mock) 구현</strong>입니다. 아래 레코드는 플랫폼이 자동으로
+      만들어 둔 매핑이며, 실제 이름 해석은 운영팀 권한 확보 후 활성화됩니다.
+      <strong>학생은 DNS를 직접 관리하지 않습니다.</strong>
+    </div>
+
+    <div class="container solid-wide">
+      <div class="solid-grid">
+        <section class="solid-panel">
+          <p class="solid-panel-title">DNS Status</p>
+          <div class="solid-metrics">
+            <div class="solid-metric"><label>Managed records</label><strong id="metric-records">0</strong></div>
+            <div class="solid-metric"><label>Zone</label><strong style="font-size:15px">solid.internal</strong></div>
+            <div class="solid-metric"><label>Provider</label><strong style="font-size:15px;color:#ca8a04">MockDnsProvider</strong></div>
+            <div class="solid-metric"><label>Default TTL</label><strong style="font-size:15px">60s</strong></div>
+          </div>
+        </section>
+        <section class="solid-panel">
+          <p class="solid-panel-title">동작 원리</p>
+          <div style="font-size:13px;color:#64748b;line-height:1.9">
+            서비스 생성 → <code>createRecord</code><br>
+            이름 변경 → <code>updateRecord</code><br>
+            서비스 삭제 → <code>deleteRecord</code><br>
+            VM IP 변경 → 이름 유지, 레코드만 갱신
+          </div>
+        </section>
+      </div>
+
+      <div class="card solid-card-compact solid-table-wrap">
+        <div class="toolbar">
+          <h2 style="margin:0;font-size:16px">A Records <span class="mock-badge">Mock</span></h2>
+          <span style="font-size:13px;color:#94a3b8" id="updated-at"></span>
+        </div>
+        <div id="record-list"><p class="empty">로딩 중…</p></div>
+      </div>
+
+      <div class="req-box">
+        <h3>🔑 실연동에 필요한 권한 (운영팀 요청)</h3>
+        <ol>
+          <li><code>*.solid.internal</code> 존 레코드 추가·수정·삭제 권한</li>
+          <li>OpenVPN 접속자·SOLID VM이 우리 DNS 서버를 바라보게 하는 설정 권한</li>
+          <li>VM 사설 IP 조회·소유권 검증을 위한 CloudStack API 접근</li>
+        </ol>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script src="portal.js"></script>
+<script>
+async function init() {
+    const ok = await requireAuth();
+    if (!ok) return;
+    document.getElementById('user-info').textContent = getEmail() || '';
+    await loadRecords();
+    setInterval(loadRecords, 10_000); // 서비스 추가/삭제가 레코드에 반영되도록 자동 갱신
+}
+
+async function loadRecords() {
+    const res = await apiFetch('/api/services');
+    if (!res.ok) return;
+    const services = await res.json();
+    const el = document.getElementById('record-list');
+
+    document.getElementById('metric-records').textContent = services.length;
+    document.getElementById('updated-at').textContent =
+        '갱신: ' + new Date().toLocaleTimeString('ko-KR');
+
+    if (!services.length) {
+        el.innerHTML = '<p class="empty">등록된 서비스가 없습니다. 서비스를 추가하면 DNS 레코드가 자동 생성됩니다.</p>';
+        return;
+    }
+
+    const rows = services.map(s => `
+      <tr>
+        <td><code>${s.internalHostname}</code></td>
+        <td><span class="rtype">A</span></td>
+        <td><code>${s.privateIp}</code></td>
+        <td>60</td>
+        <td>${scopeBadge(s.scope)}</td>
+        <td><span class="status-wait">● 적용 대기 (Mock)</span></td>
+      </tr>`).join('');
+
+    el.innerHTML = `
+      <table>
+        <thead>
+          <tr><th>Name</th><th>Type</th><th>Target (VM IP)</th><th>TTL</th><th>Scope</th><th>Status</th></tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+}
+
+function doLogout() { clearAuth(); location.href = '/portal/index.html'; }
+
+init();
+</script>
+</body>
+</html>
