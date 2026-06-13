@@ -57,6 +57,104 @@ SOLID Cloud VM(code-server 환경) ↔ Google Colab T4 GPU 연결을 **학생 �
 
 ---
 
+## 시스템 동작 원리
+
+### 각 구성 요소 역할
+
+| 구성 요소 | 역할 |
+|-----------|------|
+| JupyterLab | Colab GPU 서버 위에서 실행되는 웹 기반 Python IDE. Google의 기본 Jupyter는 외부 접근이 잠겨 있어 별도로 띄움 |
+| ngrok / Cloudflare | Colab은 NAT 안에 있어 외부에서 직접 접근 불가. 터널 클라이언트가 Colab에서 먼저 아웃바운드 연결을 맺어 외부 URL을 만들어줌 |
+| Railway (Relay 서버) | Colab이 맡겨둔 URL을 slink connect가 찾아가는 보관함. 실제 데이터 전송에는 관여하지 않음 |
+| slink CLI | 학생 VM에서 Railway와 통신해 URL + Token을 받아오고 VS Code에 자동 연결 |
+
+---
+
+### 명령어별 동작 흐름
+
+**`slink init` — 학기 초 1회**
+
+```
+$ slink init
+  학번: 32211690 / 이메일: hyun@dankook.ac.kr
+        ↓
+  POST /api/users/register → Railway에 학생 정보 등록
+        ↓
+  API Key 발급 (sk-dku-xxxx) → ~/.slinkrc 저장
+        ↓
+  이 API Key를 Colab Secret에 등록해두면
+  이후 Colab이 "이 학생 거 맞다"는 인증 수단이 됨
+```
+
+---
+
+**Colab 원라이너 — 매일**
+
+```
+exec(urllib.request.urlopen('.../agent-cf').read())
+        ↓
+  [1] Google의 기본 Jupyter는 외부 접근 불가
+      → 같은 GPU 서버 위에 JupyterLab을 포트 8899로 새로 실행
+
+  [2] cloudflared(또는 ngrok)가 8899 포트를 외부에 노출
+      → https://xxxx.trycloudflare.com 생성
+      (Colab은 NAT 안에 있어 직접 접근 불가 → 터널이 뚫어줌)
+
+  [3] 생성된 URL + JupyterToken을 Railway에 등록
+      POST /api/session/register
+      → Railway: "이 학생 URL은 xxxx.trycloudflare.com" 저장
+```
+
+출력:
+```
+✓ Colab GPU 준비 완료!
+Jupyter : https://xxxx.trycloudflare.com
+VM에서  : slink connect
+```
+
+---
+
+**`slink connect` — 매일**
+
+```
+$ slink connect
+        ↓
+  [1] ~/.slinkrc에서 이메일 + API Key 로드
+
+  [2] Railway에 인증 후 URL 요청
+      GET /api/session/by-owner/hyun@dankook.ac.kr (Bearer sk-dku-xxxx)
+
+  [3] Railway가 Colab이 등록해둔 URL + Token 반환
+      { ngrokHost: "xxxx.trycloudflare.com", jupyterToken: "1aa155..." }
+
+  [4] .vscode/settings.json 자동 갱신
+      → VS Code가 읽어서 JupyterLab에 자동 연결
+
+  [5] keepalive 데몬 실행
+      → 10분마다 JupyterLab에 ping → Colab 90분 끊김 방지
+```
+
+---
+
+### 실제 데이터 경로
+
+```
+VS Code (.ipynb 실행)
+    ↓
+xxxx.trycloudflare.com        ← Railway는 여기 관여 안 함
+    ↓
+Cloudflare 서버
+    ↓
+Colab :8899 (우리가 띄운 JupyterLab)
+    ↓
+T4 GPU에서 코드 실행 → 결과 반환
+```
+
+> Railway는 URL을 전달해주는 역할만 하고,
+> 실제 코드 실행 데이터는 Cloudflare 터널을 통해 직접 오간다.
+
+---
+
 ## 구현 완료 항목
 
 ### ① 사용자 인증 시스템
