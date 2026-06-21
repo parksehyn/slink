@@ -76,7 +76,7 @@ SOLID DNS 서비스는 학생이 자신의 VM을 골라 `*.solid.internal` 내�
 - **DNS 이름**: 소문자/숫자/하이픈(라벨), 루트 `@` 허용. 위반 → `INVALID_DNS_NAME`.
 - **vmId(A)**: 필수. 없는/타인 VM → `VM_NOT_FOUND`/`VM_NOT_OWNED`. 미지정 → `INVALID_REQUEST`.
 - **사설 IP(A)**: `10.0.0.0/8`만 허용. 루프백·169.254·0.0.0.0·공인 → `INVALID_IP_RANGE` (§7.2).
-- **중복**: 소유자 내 동일 이름 → `DUPLICATE_RECORD`.
+- **중복**: 전역 동일 이름 → `DUPLICATE_RECORD` (전역 유일, 선착순). 정책·향후안: [dns-naming-policy.md](dns-naming-policy.md).
 - **TTL**: 30~86400초로 클램프(기본 3600).
 
 ## 상태값 (§8)

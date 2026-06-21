@@ -130,6 +130,21 @@ class DnsRecordApiTest {
     }
 
     @Test
+    void globalUniqueName_blocksOtherUser() throws Exception {
+        createA("shared");                       // setup 사용자로 생성
+        String otherToken = login(String.valueOf(90_000_000L + (System.nanoTime() % 9_000_000L)));
+        String otherVm = JsonPath.read(mvc.perform(get("/api/vms")
+                        .header("Authorization", "Bearer " + otherToken))
+                .andReturn().getResponse().getContentAsString(), "$[0].instanceId");
+        mvc.perform(post("/api/dns/records")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"type\":\"A\",\"name\":\"shared\",\"vmId\":\"" + otherVm + "\"}")
+                        .header("Authorization", "Bearer " + otherToken))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("DUPLICATE_RECORD"));
+    }
+
+    @Test
     void update_valueOutOfPrivateRange_returns400() throws Exception {
         String id = JsonPath.read(createA("rng"), "$.id");
         mvc.perform(patch("/api/dns/records/" + id)

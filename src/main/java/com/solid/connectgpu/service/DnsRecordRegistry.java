@@ -124,8 +124,8 @@ public class DnsRecordRegistry {
                 throw new DnsApiException("INVALID_DNS_NAME", "CNAME 대상이 올바른 호스트가 아닙니다: " + value, 400);
         }
 
-        if (nameTaken(ownerId, name, null))
-            throw new DnsApiException("DUPLICATE_RECORD", "이미 존재하는 DNS 이름: " + name, 409);
+        if (nameTaken(name, null))
+            throw new DnsApiException("DUPLICATE_RECORD", "이미 사용 중인 DNS 이름입니다: " + name, 409);
 
         int ttl = clampTtl(req.ttl() != null ? req.ttl() : DEFAULT_TTL);
         DnsRecord record = new DnsRecord(ownerId, req.type(), name, value, ttl, vmId, vmName);
@@ -144,8 +144,8 @@ public class DnsRecordRegistry {
         String newValue = req.value() != null ? req.value().trim() : record.getValue();
         validateName(newName);
         validateValue(newType, newValue);
-        if (nameTaken(ownerId, newName, id))
-            throw new DnsApiException("DUPLICATE_RECORD", "이미 존재하는 DNS 이름: " + newName, 409);
+        if (nameTaken(newName, id))
+            throw new DnsApiException("DUPLICATE_RECORD", "이미 사용 중인 DNS 이름입니다: " + newName, 409);
 
         String oldName = record.getName();
         record.setType(newType);
@@ -208,10 +208,14 @@ public class DnsRecordRegistry {
         }
     }
 
-    private boolean nameTaken(String ownerId, String name, String excludeId) {
+    /**
+     * DNS 이름 중복 검사 — <b>전역 유일</b>(소유자 무관). 멀티유저에서 서로 다른 학생이 같은
+     * {@code web.solid.internal}을 만들어 zone에서 덮어쓰는(하이재킹) 것을 막는다(선착순).
+     * 향후 학번 네임스페이스로 바꾸는 안은 {@code docs/dns-naming-policy.md} 참고.
+     */
+    private boolean nameTaken(String name, String excludeId) {
         return records.values().stream()
-                .anyMatch(r -> r.getOwnerId().equals(ownerId)
-                        && !r.getId().equals(excludeId == null ? "" : excludeId)
+                .anyMatch(r -> !r.getId().equals(excludeId == null ? "" : excludeId)
                         && r.getName().equals(name));
     }
 
