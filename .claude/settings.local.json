@@ -3,7 +3,29 @@
     "allow": [
       "Bash(git init *)",
       "Bash(git add *)",
-      "Bash(git commit *)"
+      "Bash(git commit *)",
+      "Bash(git remote *)",
+      "Bash(git branch *)",
+      "Bash(git push *)",
+      "Bash(python3 -m py_compile \"E:\\\\dhapr\\\\바탕화면\\\\connectGPU\\\\agents\\\\slink\\\\slink.py\")",
+      "Bash(python3 -c \"import ast; ast.parse\\(open\\('E:/dhapr/바탕화면/connectGPU/agents/slink/slink.py'\\).read\\(\\)\\); print\\('OK'\\)\")",
+      "PowerShell(python -m py_compile \"E:\\\\dhapr\\\\바탕화면\\\\connectGPU\\\\agents\\\\slink\\\\slink.py\"; if \\($?\\) { \"OK\" } else { \"FAIL\" })",
+      "PowerShell(& \"C:\\\\Users\\\\dhapr\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python313\\\\python.exe\" -m py_compile \"E:\\\\dhapr\\\\바탕화면\\\\connectGPU\\\\agents\\\\slink\\\\slink.py\"; if \\($?\\) { \"OK\" } else { \"FAIL\" })",
+      "Bash(./gradlew build *)",
+      "Bash(curl *)",
+      "PowerShell(try { $r = Invoke-WebRequest -Uri \"https://slink-production.up.railway.app/api/session/000000\" -TimeoutSec 10 -ErrorAction Stop; $r.StatusCode } catch { $_.Exception.Message })",
+      "PowerShell($body = '{\"studentId\":\"32211690\",\"email\":\"test@dankook.ac.kr\"}'; $r = Invoke-WebRequest -Uri \"https://slink-production.up.railway.app/api/users/register\" -Method POST -Body $body -ContentType \"application/json\" -TimeoutSec 10; Write-Host \"Status: $\\($r.StatusCode\\)\"; Write-Host \"Body: $\\($r.Content\\)\")",
+      "PowerShell(Start-Sleep -Seconds 10; $body = '{\"studentId\":\"32211690\",\"email\":\"test@dankook.ac.kr\"}'; try { $r = Invoke-WebRequest -Uri \"https://slink-production.up.railway.app/api/users/register\" -Method POST -Body $body -ContentType \"application/json\" -TimeoutSec 15; \"Status: $\\($r.StatusCode\\)\"; \"Body: $\\($r.Content\\)\" } catch { \"Error: $\\($_.Exception.Message\\)\"; $_.ErrorDetails.Message })",
+      "PowerShell(& \"C:\\\\Users\\\\dhapr\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python313\\\\python.exe\" -m pip install \"E:\\\\dhapr\\\\바탕화면\\\\connectGPU\\\\agents\\\\slink\" --quiet; if \\($?\\) { \"설치 성공\" } else { \"설치 실패\" })",
+      "PowerShell(slink *)",
+      "Bash(git pull *)",
+      "Bash(git config *)",
+      "Bash(git stash *)",
+      "Bash(gh repo *)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:github.com)",
+      "Bash(./gradlew bootRun)",
+      "Bash(break)"
     ]
   }
 }
