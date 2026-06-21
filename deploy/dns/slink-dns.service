@@ -13,6 +13,9 @@ Environment=DNS_ZONE_FILE=/etc/coredns/db.solid.internal
 Environment=DNS_ZONE_NAME=solid.internal
 Environment=DNS_ZONE_NS_IP=10.0.11.23
 Environment=DNS_STORE_FILE=/var/lib/slink/dns-records.json
+# 포털 정적 파일을 jar 밖에서 서빙 → 화면만 고칠 땐 재빌드 없이 git pull + 새로고침.
+# git 작업 트리의 portal 폴더를 직접 가리킨다(경로는 본인 환경에 맞게).
+Environment=PORTAL_STATIC_DIR=/home/ubuntu/slink/src/main/resources/static/portal
 ExecStart=/usr/bin/java -jar /opt/slink/slink.jar
 Restart=always
 RestartSec=3
