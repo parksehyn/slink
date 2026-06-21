@@ -377,4 +377,46 @@ class ServiceApiTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.publicExpiresAt").isNotEmpty());
     }
+
+    // ── 인바운드 접근 정책 ───────────────────────────────────────────────────
+
+    @Test
+    void create_defaultAccessPolicyIsDkuInternal() throws Exception {
+        mvc.perform(post("/api/services")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(createJson("policy-default"))
+                        .header("Authorization", "Bearer " + apiKey))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.accessPolicy").value("DKU_INTERNAL"))
+                .andExpect(jsonPath("$.allowedEmails").isArray())
+                .andExpect(jsonPath("$.allowedEmails").isEmpty());
+    }
+
+    @Test
+    void create_withAllowlist_storesNormalizedEmails() throws Exception {
+        String body = "{\"name\":\"policy-allow\","
+                + "\"instanceId\":\"solid-01\",\"privateIp\":\"10.0.0.1\","
+                + "\"localPort\":8080,\"protocol\":\"HTTP\",\"scope\":\"INTERNAL\","
+                + "\"accessPolicy\":\"ALLOWLIST\","
+                + "\"allowedEmails\":[\"Hong@dankook.ac.kr\",\"lee@dankook.ac.kr\"]}";
+        mvc.perform(post("/api/services")
+                        .contentType(MediaType.APPLICATION_JSON).content(body)
+                        .header("Authorization", "Bearer " + apiKey))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.accessPolicy").value("ALLOWLIST"))
+                .andExpect(jsonPath("$.allowedEmails",
+                        hasItems("hong@dankook.ac.kr", "lee@dankook.ac.kr")));
+    }
+
+    @Test
+    void update_accessPolicy_reflected() throws Exception {
+        String id = idOf(createService("policy-update"));
+        mvc.perform(patch("/api/services/" + id)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"accessPolicy\":\"ALLOWLIST\",\"allowedEmails\":[\"x@dankook.ac.kr\"]}")
+                        .header("Authorization", "Bearer " + apiKey))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accessPolicy").value("ALLOWLIST"))
+                .andExpect(jsonPath("$.allowedEmails", hasItem("x@dankook.ac.kr")));
+    }
 }

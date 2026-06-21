@@ -9,20 +9,16 @@
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
          background: #f8fafc; color: #1e293b; }
-  header { background: #1a2332; color: #fff; padding: 14px 24px;
-           display: flex; align-items: center; justify-content: space-between; }
-  header h1 { font-size: 18px; font-weight: 600; letter-spacing: .5px; }
-  header span { font-size: 13px; opacity: .7; }
-  .notice { background: #fef3c7; border-left: 4px solid #d97706;
-            padding: 10px 20px; font-size: 13px; color: #92400e; }
-  .container { max-width: 960px; margin: 32px auto; padding: 0 20px; }
-  .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px;
-          padding: 28px; }
+  .container { max-width: 1100px; margin: 0 auto; }
+  .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 28px; }
   h2 { font-size: 16px; font-weight: 600; margin-bottom: 16px; }
-  label { display: block; font-size: 13px; color: #475569; margin-bottom: 4px; }
-  input { width: 100%; border: 1px solid #cbd5e1; border-radius: 6px;
-          padding: 8px 12px; font-size: 14px; margin-bottom: 12px; outline: none; }
-  input:focus { border-color: #2563eb; }
+  label { display: block; font-size: 13px; color: #475569; margin-bottom: 4px; font-weight: 500; }
+  input, select, textarea { width: 100%; border: 1px solid #cbd5e1; border-radius: 6px;
+          padding: 8px 12px; font-size: 14px; margin-bottom: 12px; outline: none; background: #fff;
+          font-family: inherit; }
+  input:focus, select:focus, textarea:focus { border-color: #2563eb; }
+  textarea { resize: vertical; min-height: 64px; }
+  .form-group { margin-bottom: 4px; }
   .btn { display: inline-block; padding: 8px 16px; border-radius: 6px;
          border: none; cursor: pointer; font-size: 14px; font-weight: 500; }
   .btn-primary { background: #2563eb; color: #fff; }
@@ -32,6 +28,7 @@
   .btn-danger { background: #dc2626; color: #fff; }
   .btn-sm { padding: 5px 10px; font-size: 12px; }
   #error { color: #dc2626; font-size: 13px; margin-top: 8px; display: none; }
+  .form-error { color: #dc2626; font-size: 13px; margin-top: 6px; display: none; }
   .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
   table { width: 100%; border-collapse: collapse; font-size: 14px; }
   th { text-align: left; padding: 10px 12px; background: #f1f5f9;
@@ -40,10 +37,27 @@
   tr:hover td { background: #fafafa; }
   a { color: #2563eb; text-decoration: none; }
   a:hover { text-decoration: underline; }
+  code { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
   #logout { font-size: 13px; color: #94a3b8; cursor: pointer; background: none;
             border: none; padding: 0; }
   #logout:hover { color: #fff; }
   .empty { color: #94a3b8; font-size: 14px; text-align: center; padding: 32px 0; }
+  .hint { font-size: 12px; color: #94a3b8; margin-top: 3px; margin-bottom: 10px; }
+  .planned { display: inline-block; font-size: 11px; font-weight: 600; color: #92400e;
+             background: #fef3c7; border: 1px solid #fcd34d; border-radius: 4px;
+             padding: 1px 7px; margin-left: 6px; vertical-align: middle; }
+  .readonly-card { background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 8px;
+                   padding: 16px 18px; font-size: 13px; color: #075985; margin-bottom: 16px; }
+  /* DNS 존 헤더 (Google Cloud DNS: 관리형 존) */
+  .dns-zone { display: flex; justify-content: space-between; align-items: center;
+              background: #fff; border: 1px solid #e2e8f0; border-radius: 8px;
+              padding: 16px 20px; margin-bottom: 16px; }
+  .dns-zone-main { display: flex; gap: 12px; align-items: center; }
+  .dns-zone-icon { font-size: 22px; }
+  .dns-zone-name { font-size: 16px; font-weight: 600; color: #0f172a; }
+  .dns-zone-sub { font-size: 12px; color: #64748b; margin-top: 2px; }
+  .dns-zone-meta { font-size: 13px; color: #64748b; text-align: right; }
+  .dns-zone-meta strong { color: #0b77f0; font-size: 18px; }
 </style>
 </head>
 <body>
@@ -83,12 +97,8 @@
     <div class="solid-page-title">
       <div>
         <h1>SOLID Service Portal</h1>
-        <p>VM 내부 서비스를 이름으로 관리하고 필요 시 외부로 공개합니다.</p>
+        <p>DNS와 터널링을 탭으로 나눠 관리합니다.</p>
       </div>
-      <a href="/portal/add.html" class="btn btn-primary btn-sm">서비스 추가</a>
-    </div>
-    <div class="solid-note">
-      내부 주소(INTERNAL)는 현재 모의 DNS입니다. 외부 공개(PUBLIC)는 VM Agent와 Cloudflare Quick Tunnel로 실제 동작합니다.
     </div>
 
 <!-- 로그인 폼 -->
@@ -98,6 +108,8 @@
     <p style="font-size:13px;color:#64748b;margin-bottom:16px">
       <code>slink init</code> 으로 발급받은 API Key를 입력하세요.
     </p>
+    <label for="api-base">Relay 주소 <span style="color:#94a3b8">(비우면 현재 서버)</span></label>
+    <input type="text" id="api-base" placeholder="http://10.0.10.20:8081" autocomplete="off">
     <label for="api-key">API Key</label>
     <input type="password" id="api-key" placeholder="sk-dku-..." autocomplete="off">
     <button class="btn btn-primary" onclick="doLogin()" style="width:100%">로그인</button>
@@ -105,35 +117,230 @@
   </div>
 </div>
 
-<!-- 서비스 목록 -->
+<!-- 메인 -->
 <div class="container solid-wide" id="main-section" style="display:none">
-  <div class="solid-grid">
-    <section class="solid-panel">
-      <p class="solid-panel-title">Resources</p>
-      <div class="solid-metrics">
-        <div class="solid-metric"><label>Registered services</label><strong id="metric-services">0</strong></div>
-        <div class="solid-metric"><label>Public services</label><strong id="metric-public">0</strong></div>
-        <div class="solid-metric"><label>Agent status</label><strong id="metric-agent" style="font-size:15px">Ready</strong></div>
-        <div class="solid-metric"><label>Internal DNS</label><strong style="font-size:15px;color:#d97706">Mock</strong></div>
-      </div>
-    </section>
-    <section class="solid-panel">
-      <p class="solid-panel-title">Demo Flow</p>
-      <div style="font-size:13px;color:#64748b;line-height:1.8">
-        1. VM에서 서비스 실행<br>
-        2. 포털에서 서비스 등록<br>
-        3. 외부 공개 시작<br>
-        4. 공개 URL로 접속 확인
-      </div>
-    </section>
+
+  <!-- 탭 바 -->
+  <div class="solid-tabs">
+    <button class="solid-tab" id="tabbtn-dns" onclick="showTab('dns')">DNS</button>
+    <button class="solid-tab" id="tabbtn-tunnel" onclick="showTab('tunnel')">터널링</button>
   </div>
 
-  <div class="card solid-card-compact solid-table-wrap">
-    <div class="toolbar">
-      <h2 style="margin:0">내 서비스</h2>
-      <a href="/portal/add.html" class="btn btn-primary btn-sm">+ 서비스 추가</a>
+  <!-- ░░░ DNS 탭 ░░░ -->
+  <div id="tab-dns" style="display:none">
+    <div class="solid-note">
+      내부 DNS 레코드는 현재 <strong>모의(Mock)</strong> 입니다. 실제 해석은 <code>.solid.internal</code> 존 관리 권한 확보 후 동작합니다.
+      값(VM 사설 IP)은 SOLID(CloudStack)에서 받아옵니다(현재 샘플).
     </div>
-    <div id="service-list"><p class="empty">로딩 중…</p></div>
+
+    <!-- 관리형 존 헤더 (Google Cloud DNS 스타일) -->
+    <div class="dns-zone">
+      <div class="dns-zone-main">
+        <span class="dns-zone-icon">🌐</span>
+        <div>
+          <div class="dns-zone-name">solid.internal <span class="type-badge">PRIVATE</span></div>
+          <div class="dns-zone-sub">관리형 내부 존 · VPN 사용자·VM이 이름으로 접근 (현재 모의)</div>
+        </div>
+      </div>
+      <div class="dns-zone-meta">레코드 <strong id="dns-zone-count">0</strong>개</div>
+    </div>
+
+    <div class="card solid-card-compact solid-table-wrap">
+      <div class="toolbar">
+        <h2 style="margin:0">DNS 레코드</h2>
+        <button class="btn btn-primary btn-sm" id="dns-add-btn" onclick="toggleDnsForm(true)">+ 추가하기</button>
+      </div>
+
+      <!-- 인라인 추가 폼 (같은 화면) -->
+      <div class="solid-inline-form" id="dns-form" style="display:none">
+        <div class="form-row">
+          <div class="form-group">
+            <label for="dns-type">타입</label>
+            <select id="dns-type" onchange="onDnsTypeChange()">
+              <option value="A">A — 호스트 → IP</option>
+              <option value="CNAME">CNAME — 별칭 → 호스트</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="dns-name">호스트</label>
+            <input id="dns-name" type="text" placeholder="web  (또는 @)" autocomplete="off">
+            <p class="hint"><code>@</code> = 존 루트 · 입력 뒤에 <code>.solid.internal</code>이 자동으로 붙습니다</p>
+          </div>
+        </div>
+        <div class="form-group" id="dns-vm-group">
+          <label for="dns-vm">VM에서 선택 <span style="color:#94a3b8">(선택 시 사설 IP 자동 입력)</span></label>
+          <select id="dns-vm" onchange="onDnsVmChange()"><option value="">— 직접 입력 —</option></select>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="dns-value" id="dns-value-label">값 (VM 사설 IP)</label>
+            <input id="dns-value" type="text" placeholder="10.0.10.11" autocomplete="off">
+          </div>
+          <div class="form-group">
+            <label for="dns-ttl">TTL</label>
+            <select id="dns-ttl">
+              <option value="300">5분 (300s)</option>
+              <option value="1800">30분 (1800s)</option>
+              <option value="3600" selected>1시간 (3600s)</option>
+              <option value="86400">1일 (86400s)</option>
+            </select>
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;margin-top:6px">
+          <button class="btn btn-primary" id="dns-submit-btn" onclick="submitDnsRecord()">저장</button>
+          <button class="btn btn-outline" onclick="toggleDnsForm(false)">취소</button>
+        </div>
+        <p class="form-error" id="dns-error"></p>
+      </div>
+
+      <div id="dns-list"><p class="empty">로딩 중…</p></div>
+    </div>
+  </div>
+
+  <!-- ░░░ 터널링 탭 ░░░ -->
+  <div id="tab-tunnel" style="display:none">
+    <div class="solid-seg">
+      <button id="segbtn-outbound" onclick="showMode('outbound')">아웃바운드 (외부 → 접근)</button>
+      <button id="segbtn-inbound" onclick="showMode('inbound')">인바운드 (외부 ← SOLID 공개)</button>
+    </div>
+
+    <!-- 아웃바운드: 외부가 연 터널을 등록해 SOLID가 접근 -->
+    <div id="mode-outbound" style="display:none">
+      <div class="solid-note">
+        외부 서비스(예: Colab)가 터널을 열어 발급한 주소를 등록해 두면 SOLID에서 그 주소로 접근합니다.
+        Colab GPU는 <code>slink connect</code> 흐름이 그대로 동작합니다.
+      </div>
+
+      <div class="readonly-card" id="colab-card" style="display:none">
+        <strong>현재 Colab 세션</strong> (slink, 읽기 전용)<br>
+        <span id="colab-url"></span>
+      </div>
+
+      <div class="card solid-card-compact solid-table-wrap">
+        <div class="toolbar">
+          <h2 style="margin:0">외부 연결</h2>
+          <button class="btn btn-primary btn-sm" onclick="toggleConnForm(true)">+ 연결 추가</button>
+        </div>
+
+        <div class="solid-inline-form" id="conn-form" style="display:none">
+          <div class="form-row">
+            <div class="form-group">
+              <label for="conn-name">이름</label>
+              <input id="conn-name" type="text" placeholder="colab-gpu" autocomplete="off">
+            </div>
+            <div class="form-group">
+              <label for="conn-type">타입</label>
+              <select id="conn-type">
+                <option value="JUPYTER">JUPYTER</option>
+                <option value="HTTP">HTTP</option>
+                <option value="SSH">SSH</option>
+                <option value="OTHER">OTHER</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="conn-url">URL (외부가 열어준 주소)</label>
+            <input id="conn-url" type="text" placeholder="https://xxxx.trycloudflare.com" autocomplete="off">
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="conn-token">토큰 <span style="color:#94a3b8">(선택)</span></label>
+              <input id="conn-token" type="text" placeholder="jupyter token 등" autocomplete="off">
+            </div>
+            <div class="form-group">
+              <label for="conn-note">메모 <span style="color:#94a3b8">(선택)</span></label>
+              <input id="conn-note" type="text" placeholder="설명" autocomplete="off">
+            </div>
+          </div>
+          <div style="display:flex;gap:10px;margin-top:6px">
+            <button class="btn btn-primary" onclick="submitConnection()">추가</button>
+            <button class="btn btn-outline" onclick="toggleConnForm(false)">취소</button>
+          </div>
+          <p class="form-error" id="conn-error"></p>
+        </div>
+
+        <div id="conn-list"><p class="empty">로딩 중…</p></div>
+      </div>
+    </div>
+
+    <!-- 인바운드: SOLID VM 서비스를 외부에 공개 -->
+    <div id="mode-inbound" style="display:none">
+      <div class="solid-note">
+        SOLID VM 서비스를 외부에 공개합니다. 기본은 <strong>단국대 내부 전용</strong>이며, 허용 대상(단국대 계정)을 지정할 수 있습니다.
+        실제 접근 차단 시행은 Cloudflare Access/Named Tunnel + 계정 검증 연동 후입니다<span class="planned">시행 예정</span>.
+        인터넷 공개(PUBLIC)는 서비스별 상세에서 <strong>외부 공개 시작</strong>으로 설정합니다.
+      </div>
+
+      <div class="card solid-card-compact solid-table-wrap">
+        <div class="toolbar">
+          <h2 style="margin:0">내 서비스</h2>
+          <button class="btn btn-primary btn-sm" onclick="toggleSvcForm(true)">+ 서비스 추가</button>
+        </div>
+
+        <div class="solid-inline-form" id="svc-form" style="display:none">
+          <div class="form-group">
+            <label for="svc-name">서비스 이름</label>
+            <input id="svc-name" type="text" placeholder="team-demo" autocomplete="off">
+            <p class="hint">소문자·숫자·하이픈만 (예: team-demo, api-v1)</p>
+          </div>
+          <div class="form-group">
+            <label for="svc-vm">VM에서 선택 <span style="color:#94a3b8">(인스턴스·사설 IP 자동 입력)</span></label>
+            <select id="svc-vm" onchange="onSvcVmChange()"><option value="">— 직접 입력 —</option></select>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="svc-instance">인스턴스 ID</label>
+              <input id="svc-instance" type="text" placeholder="solid-32211690" autocomplete="off">
+            </div>
+            <div class="form-group">
+              <label for="svc-ip">VM 사설 IP</label>
+              <input id="svc-ip" type="text" placeholder="10.0.10.89" autocomplete="off">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="svc-port">로컬 포트</label>
+              <input id="svc-port" type="number" placeholder="3000" min="1" max="65535">
+            </div>
+            <div class="form-group">
+              <label for="svc-protocol">프로토콜</label>
+              <select id="svc-protocol">
+                <option value="HTTP">HTTP</option>
+                <option value="HTTPS">HTTPS</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="svc-scope">접근 범위</label>
+              <select id="svc-scope">
+                <option value="PRIVATE">비공개 (PRIVATE)</option>
+                <option value="INTERNAL" selected>SOLID 내부망 (INTERNAL)</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="svc-policy">접근 수준 (공개 시)</label>
+              <select id="svc-policy" onchange="onAccessPolicyChange()">
+                <option value="DKU_INTERNAL" selected>단국대 내부 전용</option>
+                <option value="ALLOWLIST">허용 대상만 (기본 거부)</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group" id="svc-allow-group" style="display:none">
+            <label for="svc-allow">허용 대상 (단국대 계정, 쉼표/줄바꿈 구분)</label>
+            <textarea id="svc-allow" placeholder="hong@dankook.ac.kr, lee@dankook.ac.kr"></textarea>
+            <p class="hint">지정한 계정만 접근 허용 <span class="planned">시행 예정</span></p>
+          </div>
+          <div style="display:flex;gap:10px;margin-top:6px">
+            <button class="btn btn-primary" onclick="submitService()">서비스 생성</button>
+            <button class="btn btn-outline" onclick="toggleSvcForm(false)">취소</button>
+          </div>
+          <p class="form-error" id="svc-error"></p>
+        </div>
+
+        <div id="service-list"><p class="empty">로딩 중…</p></div>
+      </div>
+    </div>
   </div>
 </div>
   </main>
@@ -141,7 +348,9 @@
 
 <script src="portal.js"></script>
 <script>
+// ── 인증 / 진입 ──────────────────────────────────────────────────────────────
 async function init() {
+    document.getElementById('api-base').value = getApiBase();
     if (getApiKey()) {
         const ok = await requireAuth();
         if (ok) showMain();
@@ -151,13 +360,9 @@ async function init() {
 async function doLogin() {
     const key = document.getElementById('api-key').value.trim();
     if (!key) return;
-    const res = await fetch('/api/users/me', {
-        headers: { Authorization: 'Bearer ' + key }
-    });
-    if (!res.ok) {
-        document.getElementById('error').style.display = 'block';
-        return;
-    }
+    setApiBase(document.getElementById('api-base').value);
+    const res = await fetch(apiUrl('/api/users/me'), { headers: { Authorization: 'Bearer ' + key } });
+    if (!res.ok) { document.getElementById('error').style.display = 'block'; return; }
     const user = await res.json();
     setAuth(key, user.email);
     showMain();
@@ -169,45 +374,303 @@ function showMain() {
     document.getElementById('login-section').style.display = 'none';
     document.getElementById('main-section').style.display = 'block';
     document.getElementById('user-info').textContent = getEmail() || '';
-    loadServices();
+    // 해시로 초기 탭 결정 (#dns / #tunnel, #tunnel/outbound 등)
+    const hash = location.hash.replace('#', '');
+    showTab(hash.startsWith('tunnel') ? 'tunnel' : 'dns');
 }
 
+// ── 탭 / 모드 전환 ────────────────────────────────────────────────────────────
+function showTab(tab) {
+    const isDns = tab === 'dns';
+    document.getElementById('tab-dns').style.display = isDns ? 'block' : 'none';
+    document.getElementById('tab-tunnel').style.display = isDns ? 'none' : 'block';
+    document.getElementById('tabbtn-dns').classList.toggle('active', isDns);
+    document.getElementById('tabbtn-tunnel').classList.toggle('active', !isDns);
+    location.hash = tab;
+    if (isDns) { loadDnsRecords(); }
+    else { showMode(location.hash.includes('inbound') ? 'inbound' : 'outbound'); }
+}
+
+function showMode(mode) {
+    const inbound = mode === 'inbound';
+    document.getElementById('mode-inbound').style.display = inbound ? 'block' : 'none';
+    document.getElementById('mode-outbound').style.display = inbound ? 'none' : 'block';
+    document.getElementById('segbtn-inbound').classList.toggle('active', inbound);
+    document.getElementById('segbtn-outbound').classList.toggle('active', !inbound);
+    location.hash = 'tunnel/' + mode;
+    if (inbound) loadServices();
+    else { loadConnections(); loadColabSession(); }
+}
+
+// ── DNS ───────────────────────────────────────────────────────────────────────
+const DNS_ZONE = 'solid.internal';
+let dnsRecords = [];
+let dnsEditId = null;
+
+// 상대 호스트 ↔ FQDN (가비아식: '@'=루트, 'web'→'web.solid.internal')
+function hostToFqdn(h) {
+    h = (h || '').trim().toLowerCase().replace(/\.$/, '');
+    if (h === '' || h === '@') return DNS_ZONE;
+    if (h === DNS_ZONE || h.endsWith('.' + DNS_ZONE)) return h;
+    return h + '.' + DNS_ZONE;
+}
+function fqdnToHost(fqdn) {
+    if (fqdn === DNS_ZONE) return '@';
+    if (fqdn.endsWith('.' + DNS_ZONE)) return fqdn.slice(0, fqdn.length - DNS_ZONE.length - 1);
+    return fqdn;
+}
+function ttlLabel(sec) {
+    const map = { 300: '5분', 1800: '30분', 3600: '1시간', 86400: '1일' };
+    return map[sec] || (sec + 's');
+}
+
+async function loadDnsRecords() {
+    const res = await apiFetch('/api/dns/records');
+    dnsRecords = await res.json();
+    document.getElementById('dns-zone-count').textContent = dnsRecords.length;
+    const el = document.getElementById('dns-list');
+    if (!dnsRecords.length) {
+        el.innerHTML = '<p class="empty">등록된 DNS 레코드가 없습니다. "추가하기"로 만들어보세요.</p>';
+        return;
+    }
+    const rows = dnsRecords.map(r => `
+      <tr>
+        <td>${dnsTypeBadge(r.type)}</td>
+        <td><code>${escapeHtml(fqdnToHost(r.name))}</code></td>
+        <td><code>${escapeHtml(r.value)}</code></td>
+        <td>${ttlLabel(r.ttl)}</td>
+        <td>
+          <button class="btn btn-outline btn-sm" onclick="editDnsRecord('${r.id}')">수정</button>
+          <button class="btn btn-outline btn-sm" onclick="deleteDnsRecord('${r.id}','${encodeURIComponent(r.name)}')">삭제</button>
+        </td>
+      </tr>`).join('');
+    el.innerHTML = `
+      <table>
+        <thead><tr><th>타입</th><th>호스트</th><th>값</th><th>TTL</th><th></th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+}
+
+async function toggleDnsForm(show) {
+    document.getElementById('dns-form').style.display = show ? 'block' : 'none';
+    document.getElementById('dns-add-btn').style.display = show ? 'none' : 'inline-block';
+    dnsEditId = null;
+    document.getElementById('dns-submit-btn').textContent = '저장';
+    if (show) {
+        document.getElementById('dns-error').style.display = 'none';
+        document.getElementById('dns-name').value = '';
+        document.getElementById('dns-value').value = '';
+        document.getElementById('dns-ttl').value = '3600';
+        document.getElementById('dns-type').value = 'A';
+        onDnsTypeChange();
+        await populateVmSelect('dns-vm');
+    }
+}
+
+function editDnsRecord(id) {
+    const r = dnsRecords.find(x => x.id === id);
+    if (!r) return;
+    dnsEditId = id;
+    document.getElementById('dns-form').style.display = 'block';
+    document.getElementById('dns-add-btn').style.display = 'none';
+    document.getElementById('dns-error').style.display = 'none';
+    document.getElementById('dns-type').value = r.type;
+    document.getElementById('dns-name').value = fqdnToHost(r.name);
+    document.getElementById('dns-value').value = r.value;
+    document.getElementById('dns-ttl').value = String(r.ttl);
+    onDnsTypeChange();
+    populateVmSelect('dns-vm');
+    document.getElementById('dns-submit-btn').textContent = '수정 저장';
+}
+
+function onDnsTypeChange() {
+    const isA = document.getElementById('dns-type').value === 'A';
+    document.getElementById('dns-vm-group').style.display = isA ? 'block' : 'none';
+    document.getElementById('dns-value-label').textContent = isA ? '값 (VM 사설 IP)' : '값 (대상 호스트)';
+    document.getElementById('dns-value').placeholder = isA ? '10.0.10.11' : 'web.solid.internal';
+}
+
+function onDnsVmChange() {
+    const ip = document.getElementById('dns-vm').value;
+    if (ip) document.getElementById('dns-value').value = ip;
+}
+
+async function submitDnsRecord() {
+    const type = document.getElementById('dns-type').value;
+    const name = hostToFqdn(document.getElementById('dns-name').value);
+    const value = document.getElementById('dns-value').value.trim();
+    const ttl = parseInt(document.getElementById('dns-ttl').value) || 3600;
+    const err = document.getElementById('dns-error');
+    err.style.display = 'none';
+    const body = JSON.stringify({ type, name, value, ttl });
+    const res = dnsEditId
+        ? await apiFetch('/api/dns/records/' + dnsEditId, { method: 'PATCH', body })
+        : await apiFetch('/api/dns/records', { method: 'POST', body });
+    if (res.ok) { toggleDnsForm(false); loadDnsRecords(); }
+    else { err.textContent = (await res.text()) || 'DNS 레코드 저장 실패'; err.style.display = 'block'; }
+}
+
+async function deleteDnsRecord(id, name) {
+    if (!confirm(`DNS 레코드 "${fqdnToHost(decodeURIComponent(name))}" 를 삭제할까요?`)) return;
+    const res = await apiFetch('/api/dns/records/' + id, { method: 'DELETE' });
+    if (res.ok) loadDnsRecords();
+}
+
+// ── 인바운드 (서비스) ──────────────────────────────────────────────────────────
 async function loadServices() {
     const res = await apiFetch('/api/services');
     const services = await res.json();
     const el = document.getElementById('service-list');
-
     if (!services.length) {
-        document.getElementById('metric-services').textContent = '0';
-        document.getElementById('metric-public').textContent = '0';
-        el.innerHTML = '<p class="empty">등록된 서비스가 없습니다. 서비스를 추가해보세요.</p>';
+        el.innerHTML = '<p class="empty">등록된 서비스가 없습니다. "서비스 추가"로 만들어보세요.</p>';
         return;
     }
-
-    document.getElementById('metric-services').textContent = services.length;
-    document.getElementById('metric-public').textContent = services.filter(s => s.scope === 'PUBLIC').length;
-
     const rows = services.map(s => `
       <tr>
-        <td><a href="/portal/detail.html?id=${s.id}">${s.name}</a></td>
-        <td>${s.instanceId}</td>
+        <td><a href="/portal/detail.html?id=${s.id}">${escapeHtml(s.name)}</a></td>
+        <td>${escapeHtml(s.instanceId)}</td>
         <td>${s.localPort}</td>
         <td>${scopeBadge(s.scope)}</td>
+        <td>${accessPolicyLabel(s.accessPolicy)}</td>
         <td>${statusBadge(s.status)}</td>
         <td>${s.publicExpiresAt ? formatExpiry(s.publicExpiresAt) : '—'}</td>
         <td><a href="/portal/detail.html?id=${s.id}" class="btn btn-outline btn-sm">상세</a></td>
       </tr>`).join('');
-
     el.innerHTML = `
       <table>
-        <thead>
-          <tr>
-            <th>이름</th><th>인스턴스</th><th>포트</th>
-            <th>범위</th><th>상태</th><th>공개 만료</th><th></th>
-          </tr>
-        </thead>
+        <thead><tr>
+          <th>이름</th><th>인스턴스</th><th>포트</th><th>범위</th>
+          <th>접근 정책</th><th>상태</th><th>공개 만료</th><th></th>
+        </tr></thead>
         <tbody>${rows}</tbody>
       </table>`;
+}
+
+async function toggleSvcForm(show) {
+    const form = document.getElementById('svc-form');
+    form.style.display = show ? 'block' : 'none';
+    if (show) {
+        document.getElementById('svc-error').style.display = 'none';
+        ['svc-name','svc-instance','svc-ip','svc-port','svc-allow'].forEach(id => document.getElementById(id).value = '');
+        document.getElementById('svc-scope').value = 'INTERNAL';
+        document.getElementById('svc-policy').value = 'DKU_INTERNAL';
+        onAccessPolicyChange();
+        await populateVmSelect('svc-vm');
+    }
+}
+
+function onSvcVmChange() {
+    const sel = document.getElementById('svc-vm');
+    const opt = sel.options[sel.selectedIndex];
+    if (!opt || !opt.value) return;
+    document.getElementById('svc-instance').value = opt.dataset.instance || '';
+    document.getElementById('svc-ip').value = opt.value;
+}
+
+function onAccessPolicyChange() {
+    const allow = document.getElementById('svc-policy').value === 'ALLOWLIST';
+    document.getElementById('svc-allow-group').style.display = allow ? 'block' : 'none';
+}
+
+async function submitService() {
+    const name = document.getElementById('svc-name').value.trim();
+    const instanceId = document.getElementById('svc-instance').value.trim();
+    const privateIp = document.getElementById('svc-ip').value.trim();
+    const localPort = parseInt(document.getElementById('svc-port').value);
+    const protocol = document.getElementById('svc-protocol').value;
+    const scope = document.getElementById('svc-scope').value;
+    const accessPolicy = document.getElementById('svc-policy').value;
+    const allowedEmails = document.getElementById('svc-allow').value
+        .split(/[,\n]/).map(s => s.trim()).filter(Boolean);
+    const err = document.getElementById('svc-error');
+    err.style.display = 'none';
+    const res = await apiFetch('/api/services', {
+        method: 'POST',
+        body: JSON.stringify({ name, instanceId, privateIp, localPort, protocol, scope, accessPolicy, allowedEmails })
+    });
+    if (res.ok) { toggleSvcForm(false); loadServices(); }
+    else { err.textContent = (await res.text()) || '서비스 생성 실패'; err.style.display = 'block'; }
+}
+
+// ── 아웃바운드 (외부 연결) ─────────────────────────────────────────────────────
+async function loadConnections() {
+    const res = await apiFetch('/api/connections');
+    const conns = await res.json();
+    const el = document.getElementById('conn-list');
+    if (!conns.length) {
+        el.innerHTML = '<p class="empty">등록된 외부 연결이 없습니다. "연결 추가"로 만들어보세요.</p>';
+        return;
+    }
+    const rows = conns.map(c => {
+        const urlCell = /^https?:\/\//i.test(c.url)
+            ? `<a href="${escapeHtml(c.url)}" target="_blank" rel="noopener">${escapeHtml(c.url)}</a>`
+            : `<code>${escapeHtml(c.url)}</code>`;
+        return `
+      <tr>
+        <td>${escapeHtml(c.name)}</td>
+        <td>${connTypeBadge(c.type)}</td>
+        <td>${urlCell}</td>
+        <td>${c.token ? '<code>•••</code>' : '—'}</td>
+        <td><button class="btn btn-outline btn-sm" onclick="deleteConnection('${c.id}','${encodeURIComponent(c.name)}')">삭제</button></td>
+      </tr>`;
+    }).join('');
+    el.innerHTML = `
+      <table>
+        <thead><tr><th>이름</th><th>타입</th><th>URL</th><th>토큰</th><th></th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+}
+
+function toggleConnForm(show) {
+    document.getElementById('conn-form').style.display = show ? 'block' : 'none';
+    if (show) {
+        document.getElementById('conn-error').style.display = 'none';
+        ['conn-name','conn-url','conn-token','conn-note'].forEach(id => document.getElementById(id).value = '');
+        document.getElementById('conn-type').value = 'JUPYTER';
+    }
+}
+
+async function submitConnection() {
+    const name = document.getElementById('conn-name').value.trim();
+    const type = document.getElementById('conn-type').value;
+    const url = document.getElementById('conn-url').value.trim();
+    const token = document.getElementById('conn-token').value.trim();
+    const note = document.getElementById('conn-note').value.trim();
+    const err = document.getElementById('conn-error');
+    err.style.display = 'none';
+    const res = await apiFetch('/api/connections', {
+        method: 'POST', body: JSON.stringify({ name, type, url, token, note })
+    });
+    if (res.ok) { toggleConnForm(false); loadConnections(); }
+    else { err.textContent = (await res.text()) || '연결 추가 실패'; err.style.display = 'block'; }
+}
+
+async function deleteConnection(id, name) {
+    if (!confirm(`외부 연결 "${decodeURIComponent(name)}" 를 삭제할까요?`)) return;
+    const res = await apiFetch('/api/connections/' + id, { method: 'DELETE' });
+    if (res.ok) loadConnections();
+}
+
+async function loadColabSession() {
+    const email = getEmail();
+    const card = document.getElementById('colab-card');
+    if (!email) { card.style.display = 'none'; return; }
+    const res = await apiFetch('/api/session/by-owner/' + encodeURIComponent(email));
+    if (!res.ok) { card.style.display = 'none'; return; }
+    const s = await res.json();
+    if (!s || !s.ngrokHost) { card.style.display = 'none'; return; }
+    card.style.display = 'block';
+    document.getElementById('colab-url').innerHTML =
+        `<a href="${escapeHtml(s.ngrokHost)}" target="_blank">${escapeHtml(s.ngrokHost)}</a> · VM에서 <code>slink connect</code>`;
+}
+
+// ── 공통: VM 드롭다운 채우기 ────────────────────────────────────────────────
+async function populateVmSelect(selectId) {
+    const sel = document.getElementById(selectId);
+    const vms = await fetchVms();
+    sel.innerHTML = '<option value="">— 직접 입력 —</option>' + vms.map(v =>
+        `<option value="${escapeHtml(v.privateIp)}" data-instance="${escapeHtml(v.instanceId)}">`
+        + `${escapeHtml(v.instanceId)} · ${escapeHtml(v.privateIp)} (${escapeHtml(v.state)})</option>`).join('');
 }
 
 init();

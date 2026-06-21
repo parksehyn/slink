@@ -16,9 +16,12 @@ Colab GPU 연결(기존 핵심 기능)을 유지하면서, SOLID VM에서 실행
 ```
 [기존] Colab → Cloudflare Tunnel → Relay → SOLID VM (slink connect)
 
-[확장] SOLID VM 서비스 → Service Portal 등록
-         ├─ INTERNAL: 내부 DNS → VM 사설 IP   (DnsProvider, 현재 모의 구현)
-         └─ PUBLIC  : Cloudflare Tunnel → 인터넷  (TunnelProvider, 현재 모의 구현)
+[확장] Service Portal (DNS 탭 / 터널링 탭)
+  ├─ DNS 탭   : 내부 DNS 레코드(A/CNAME) 콘솔   (DnsProvider, 현재 모의 구현)
+  └─ 터널링 탭:
+       ├─ 아웃바운드: 외부가 연 터널 등록 → SOLID 접근 (Colab 일반화, /api/connections)
+       └─ 인바운드  : SOLID VM 서비스 외부 공개 (Cloudflare Tunnel, VM Agent 실제 동작)
+                      접근 정책: 단국대 내부 전용(기본) / 허용 대상 지정 — 시행 예정
 ```
 
 ## 컴포넌트
@@ -34,14 +37,17 @@ Colab GPU 연결(기존 핵심 기능)을 유지하면서, SOLID VM에서 실행
 
 ```
 src/main/java/com/solid/connectgpu/
-├── controller/   SessionController, UserController, ServiceController, AgentController
-├── service/      SessionService, UserService, ServiceRegistry
-├── model/        Session, User, ServiceEntry, ServiceScope, ServiceStatus, Protocol
-├── port/         DnsProvider (인터페이스), TunnelProvider (인터페이스)
-│   └── impl/     MockDnsProvider, MockTunnelProvider
+├── controller/   SessionController, UserController, ServiceController, VmAgentController,
+│                 DnsRecordController, OutboundConnectionController, VmController
+├── service/      SessionService, UserService, ServiceRegistry, VmAgentRegistry,
+│                 DnsRecordRegistry, OutboundConnectionRegistry
+├── model/        Session, User, ServiceEntry, ServiceScope, ServiceStatus, Protocol,
+│                 AccessPolicy, DnsRecord, DnsRecordType, OutboundConnection, ConnectionType, VmInfo
+├── port/         DnsProvider, TunnelProvider, CloudStackProvider (인터페이스)
+│   └── impl/     MockDnsProvider, MockTunnelProvider, MockCloudStackProvider
 └── dto/          (각 API 요청·응답 record)
 agents/slink/     slink-cli 소스 (PyPI 배포)
-src/main/resources/static/portal/   Service Portal 웹 UI
+src/main/resources/static/portal/   Service Portal 웹 UI (index=2탭, detail)
 docs/             설계·로드맵·진행 문서
 ```
 
@@ -63,8 +69,12 @@ docs/             설계·로드맵·진행 문서
 |------|------|
 | `POST/GET/DELETE /api/session/*` | Colab 세션 (기존) |
 | `POST /api/users/register`, `GET /api/users/me` | 사용자 인증 |
-| `POST/GET/PATCH/DELETE /api/services/*` | Service Registry |
+| `POST/GET/PATCH/DELETE /api/services/*` | Service Registry (인바운드) + 접근 정책 |
 | `POST/DELETE /api/services/{id}/publish` | 외부 공개 제어 |
+| `GET/POST /api/dns/records`, `PATCH/DELETE /api/dns/records/{id}` | 내부 DNS 레코드(A/CNAME, 모의) |
+| `GET/POST /api/connections`, `DELETE /api/connections/{id}` | 아웃바운드 외부 연결 |
+| `GET /api/vms` | 내 SOLID VM 목록 (CloudStack, 모의) |
+| `POST /api/agents/register`, `/{id}/heartbeat`, `/{id}/report` | VM Agent |
 
 ## 관련 문서
 
@@ -74,4 +84,5 @@ docs/             설계·로드맵·진행 문서
 - [`docs/demo-theory.md`](docs/demo-theory.md) — 외부 공개(역방향 터널링) 데모 동작 이론
 - [`docs/demo-runbook.md`](docs/demo-runbook.md) — 데모 실행 순서(재배포 후 재셋업 포함) + 트러블슈팅
 - [`docs/internal-dns-requirements.md`](docs/internal-dns-requirements.md) — 내부 DNS 실연동에 필요한 권한·정보·정책
+- [`docs/relay-on-vm.md`](docs/relay-on-vm.md) — Relay를 SOLID VM에 올리는 배포 설계 (Named Tunnel, 별도 트랙)
 - [`docs/design-a.md`](docs/design-a.md) — Colab 연결 설계 기록

@@ -41,6 +41,8 @@ public class ServiceRegistry {
                 ownerId, req.name(), req.instanceId(), req.privateIp(),
                 req.localPort(), req.protocol(), req.scope()
         );
+        if (req.accessPolicy() != null) entry.setAccessPolicy(req.accessPolicy());
+        if (req.allowedEmails() != null) entry.setAllowedEmails(normalizeEmails(req.allowedEmails()));
         services.put(entry.getId(), entry);
         if (req.scope() == ServiceScope.INTERNAL || req.scope() == ServiceScope.TEAM) {
             dns.createRecord(entry.getInternalHostname(), entry.getPrivateIp());
@@ -100,6 +102,8 @@ public class ServiceRegistry {
             entry.setScope(req.scope());
             updateDnsOnScopeChange(entry, oldScope, req.scope());
         }
+        if (req.accessPolicy() != null) entry.setAccessPolicy(req.accessPolicy());
+        if (req.allowedEmails() != null) entry.setAllowedEmails(normalizeEmails(req.allowedEmails()));
         return Optional.of(entry);
     }
 
@@ -285,6 +289,15 @@ public class ServiceRegistry {
                 : ServiceScope.PRIVATE;
         entry.setScope(restored);
         entry.setScopeBeforePublish(null);
+    }
+
+    /** 허용 이메일 목록 정규화: trim·소문자·공백 제거·중복 제거. */
+    private List<String> normalizeEmails(List<String> emails) {
+        return emails.stream()
+                .filter(e -> e != null && !e.isBlank())
+                .map(e -> e.trim().toLowerCase())
+                .distinct()
+                .toList();
     }
 
     private void validateCreate(String ownerId, CreateServiceRequest req) {

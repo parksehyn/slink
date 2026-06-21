@@ -1,6 +1,7 @@
 package com.solid.connectgpu.model;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 public class ServiceEntry {
@@ -14,6 +15,9 @@ public class ServiceEntry {
     private final Protocol protocol;
     private ServiceScope scope;
     private ServiceStatus status;
+    // 인바운드 공개 시 접근 정책. 현재는 저장·표시만 하며 실제 차단은 미시행(예정).
+    private AccessPolicy accessPolicy = AccessPolicy.DKU_INTERNAL;
+    private List<String> allowedEmails = List.of();
     private String internalHostname; // name.instanceId.solid.internal — updated on name change
     private String publicUrl;
     private Instant publicExpiresAt;
@@ -53,6 +57,8 @@ public class ServiceEntry {
     public Protocol getProtocol()          { return protocol; }
     public ServiceScope getScope()         { return scope; }
     public ServiceStatus getStatus()       { return status; }
+    public AccessPolicy getAccessPolicy()  { return accessPolicy; }
+    public List<String> getAllowedEmails() { return allowedEmails; }
     public String getInternalHostname()    { return internalHostname; }
     public String getPublicUrl()           { return publicUrl; }
     public Instant getPublicExpiresAt()    { return publicExpiresAt; }
@@ -62,6 +68,11 @@ public class ServiceEntry {
     public void setName(String name)             { this.name = name; this.internalHostname = name + "." + instanceId + ".solid.internal"; touch(); }
     public void setScope(ServiceScope scope)     { this.scope = scope; touch(); }
     public void setStatus(ServiceStatus status)  { this.status = status; touch(); }
+    public void setAccessPolicy(AccessPolicy policy) { this.accessPolicy = policy; touch(); }
+    public void setAllowedEmails(List<String> emails) {
+        this.allowedEmails = emails == null ? List.of() : List.copyOf(emails);
+        touch();
+    }
     public void setPublicUrl(String publicUrl)   { this.publicUrl = publicUrl; touch(); }
     public void setPublicExpiresAt(Instant t)    { this.publicExpiresAt = t; touch(); }
     public ServiceScope getScopeBeforePublish()  { return scopeBeforePublish; }

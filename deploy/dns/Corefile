@@ -1,0 +1,17 @@
+# CoreDNS 설정 — SOLID 내부 DNS 테스트
+# solid.internal 존은 우리가 권위(authoritative) 응답, 그 외는 업스트림으로 포워딩.
+
+solid.internal:53 {
+    file /etc/coredns/db.solid.internal {
+        reload 10s   # 존 파일 serial 변경을 10초마다 감지해 reload (dns-agent 갱신 반영)
+    }
+    log
+    errors
+}
+
+. :53 {
+    forward . 8.8.8.8 1.1.1.1   # 그 외 도메인은 인터넷 DNS로 포워딩 (클라이언트가 이 서버만 봐도 인터넷 됨)
+    cache
+    log
+    errors
+}

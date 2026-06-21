@@ -26,6 +26,10 @@ INTERNAL의 목표 동작:
 VM IP가 바뀌어도 이름(team-demo.32211690.solid.internal)은 유지, DNS 레코드만 갱신
 ```
 
+> **참고: 권한 없이 가능한 자체 테스트.** 아래 A·B·C(특히 OpenVPN push, CloudStack)는 *전교 배포*(VPN 사용자 전체 적용, IP 자동 갱신)에 필요한 것이고,
+> **본인이 가진 VM들끼리** `solid.internal`을 실제로 해석시키는 검증은 운영팀 권한 없이 지금 바로 할 수 있다(같은 사설망 + 53 포트만 열면 됨).
+> 실행 가능한 CoreDNS 테스트 베드 → [`../deploy/dns/README.md`](../deploy/dns/README.md).
+
 ## A. 권한·접근 (운영팀 요청 — 가장 중요)
 
 이것이 없으면 코드가 완성돼도 동작하지 않는다.

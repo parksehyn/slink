@@ -1,0 +1,12 @@
+# Docker가 있는 VM이라면 이걸로 한 줄 기동: docker compose up -d
+services:
+  coredns:
+    image: coredns/coredns:1.11.1
+    command: -conf /etc/coredns/Corefile
+    restart: unless-stopped
+    ports:
+      - "53:53/udp"
+      - "53:53/tcp"
+    volumes:
+      - ./Corefile:/etc/coredns/Corefile:ro
+      - ./db.solid.internal:/etc/coredns/db.solid.internal:ro

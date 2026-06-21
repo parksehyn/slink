@@ -105,11 +105,22 @@ Quick Tunnel은 임의의 `trycloudflare.com` 주소를 발급한다. 고정된 
 ### 2. 웹 포털 MVP ✅
 
 - [x] 서비스 목록 화면 (`/portal/index.html`)
-- [x] 서비스 등록 화면 (`/portal/add.html`)
+- [x] 서비스 등록 화면 (인라인 폼 — 구 `/portal/add.html`은 2탭 분리 시 흡수·제거)
 - [x] 서비스 상세 및 접근 범위 변경 화면 (`/portal/detail.html`)
 - [x] 외부 공개 시작·종료 화면
 - [x] 상태, TTL, 내부 주소, 공개 URL 표시 (내부 DNS 모의 구현 명시; 외부 공개는 VM Agent 실제 동작)
 - [x] PENDING 상태 UI — VM Agent 실행 안내 표시 및 10초 자동 갱신
+
+### 2.5 포털 2탭 분리 ✅ (2026-06-21)
+
+한 화면에 섞여 있던 DNS/터널링을 두 탭으로 분리.
+
+- [x] **DNS 탭** — 서비스 독립 A/CNAME 레코드 콘솔(상용 콘솔 스타일), 인라인 추가 폼. `GET/POST/PATCH/DELETE /api/dns/records` (`DnsProvider` 모의 경유)
+- [x] **터널링 탭** — `[아웃바운드 | 인바운드]` 토글
+  - 아웃바운드: 외부가 연 터널 등록 → SOLID 접근(Colab 일반화). `GET/POST/DELETE /api/connections` + Colab 세션 읽기 전용 카드
+  - 인바운드: 기존 공개 흐름 + 접근 정책(`DKU_INTERNAL` 기본 / `ALLOWLIST`). **시행 예정**(Cloudflare Access + CloudStack 계정 검증)
+- [x] **CloudStack VM 자동 채움** — `CloudStackProvider`(모의) + `GET /api/vms`. 실제 `listVirtualMachines` 서명 호출은 자격증명 확보 후
+- [ ] Relay-on-VM 배포 (별도 트랙) → [relay-on-vm.md](relay-on-vm.md)
 
 초기에는 별도 Service Portal로 제공한다. 기존 SOLID Cloud 관리 화면 직접 통합은 운영 플랫폼 수정 권한 확보 이후 검토한다.
 

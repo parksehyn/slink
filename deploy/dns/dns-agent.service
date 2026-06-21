@@ -1,0 +1,18 @@
+# /etc/systemd/system/slink-dns-agent.service
+# DNS VM(VM-D)에서 dns-agent를 상시 실행. 값은 본인 환경에 맞게 수정.
+[Unit]
+Description=slink dns-agent (Relay → CoreDNS 존 동기화)
+After=network.target coredns.service
+
+[Service]
+Environment=SLINK_RELAY_URL=http://10.0.10.20:8081
+Environment=SLINK_API_KEY=sk-dku-xxxxxxxxxxxxxxxx
+Environment=SLINK_ZONE=solid.internal
+Environment=SLINK_ZONE_FILE=/etc/coredns/db.solid.internal
+Environment=SLINK_NS_IP=10.0.10.10
+Environment=SLINK_INTERVAL=10
+ExecStart=/usr/bin/python3 /opt/slink/dns-agent.py
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

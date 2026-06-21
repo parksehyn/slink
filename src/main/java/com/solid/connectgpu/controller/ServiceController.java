@@ -130,6 +130,8 @@ public class ServiceController {
                 e.getInternalHostname(),
                 e.getPublicUrl(),
                 e.getPublicExpiresAt() != null ? e.getPublicExpiresAt().toString() : null,
+                e.getAccessPolicy().name(),
+                e.getAllowedEmails(),
                 e.getCreatedAt().toString(),
                 e.getUpdatedAt().toString()
         );

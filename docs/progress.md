@@ -353,6 +353,11 @@ SOLID VM           → Relay 서버   ← VPN으로 가능
 → Relay 서버는 공인 IP를 가진 외부 서비스(현재 Railway)에 있어야 함.
 → 교수님 미팅 시 Railway 또는 학교 공개 서버 자원 확보 논의 필요.
 
+> **갱신 (2026-06-21):** 위 "불가능"은 *공인 도달 경로가 없을 때*의 결론이다.
+> **Cloudflare Named Tunnel(고정 도메인)** 을 VM 앞단에 두면 사설망 VM에서도 Relay를 외부에 공개할 수 있다
+> (PUBLIC 공개에 쓰는 역방향 터널을 Relay 자신에 적용 — dogfooding). Quick Tunnel은 URL이 매번 바뀌어 부적합.
+> 별도 배포 트랙으로 진행 → [relay-on-vm.md](relay-on-vm.md).
+
 ---
 
 ## Service Portal (구현 중)
@@ -372,6 +377,18 @@ SOLID VM           → Relay 서버   ← VPN으로 가능
 - [x] VM Agent 등록 및 heartbeat (`/api/agents/register`, `/heartbeat`)
 - [x] VM Agent 기반 Cloudflare Quick Tunnel 생성·종료
 - [x] SOLID VM 실제 왕복 테스트 완료 (`localhost:3000` → `trycloudflare.com`)
+
+### 포털 2탭 분리 (2026-06-21)
+
+한 탭에 섞여 있던 DNS/터널링을 **DNS 탭 / 터널링 탭**으로 분리.
+
+- [x] **DNS 탭** — 서비스와 독립된 A/CNAME 레코드 콘솔(상용 콘솔 스타일). "추가하기" → 같은 화면 인라인 폼.
+  - API: `GET/POST /api/dns/records`, `PATCH/DELETE /api/dns/records/{id}` (`DnsRecordRegistry` → `DnsProvider` 모의)
+- [x] **터널링 탭** — `[아웃바운드 | 인바운드]` 토글
+  - 아웃바운드: 외부가 연 터널을 등록해 SOLID가 접근(Colab 일반화). `GET/POST/DELETE /api/connections`. Colab 세션 읽기 전용 카드.
+  - 인바운드: 기존 공개 흐름 + **접근 정책**(`DKU_INTERNAL` 기본 / `ALLOWLIST` 허용 이메일). `ServiceEntry.accessPolicy`/`allowedEmails`. **시행은 예정**(Cloudflare Access + 계정 검증).
+- [x] **CloudStack VM 자동 채움** — `CloudStackProvider`(모의) + `GET /api/vms` → 등록 폼에서 사설 IP·instanceId 드롭다운 선택. 실제 `listVirtualMachines` 서명 호출은 자격증명 확보 후 교체.
+- [x] 통합 테스트 추가(DNS/connections/vms/접근정책), 기존 회귀 없음. `add.html`은 인바운드 인라인 폼으로 흡수·제거.
 
 미완료:
 
