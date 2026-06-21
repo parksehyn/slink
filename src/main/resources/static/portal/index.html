@@ -104,16 +104,21 @@
 <!-- 로그인 폼 -->
 <div class="container" id="login-section">
   <div class="card" style="max-width:420px;margin:0 auto">
-    <h2>API Key 로그인</h2>
+    <h2>SOLID 로그인</h2>
     <p style="font-size:13px;color:#64748b;margin-bottom:16px">
-      <code>slink init</code> 으로 발급받은 API Key를 입력하세요.
+      SOLID(CloudStack) 계정으로 로그인합니다. VM·DNS는 이 인증으로 관리됩니다.
     </p>
+    <label for="login-username">학번 / 계정</label>
+    <input type="text" id="login-username" placeholder="32211690" autocomplete="username">
+    <label for="login-password">비밀번호</label>
+    <input type="password" id="login-password" placeholder="••••••••" autocomplete="current-password"
+           onkeydown="if(event.key==='Enter')doLogin()">
+    <label for="login-domain">도메인 <span style="color:#94a3b8">(선택)</span></label>
+    <input type="text" id="login-domain" placeholder="SW" autocomplete="off">
     <label for="api-base">Relay 주소 <span style="color:#94a3b8">(비우면 현재 서버)</span></label>
     <input type="text" id="api-base" placeholder="http://10.0.10.20:8081" autocomplete="off">
-    <label for="api-key">API Key</label>
-    <input type="password" id="api-key" placeholder="sk-dku-..." autocomplete="off">
     <button class="btn btn-primary" onclick="doLogin()" style="width:100%">로그인</button>
-    <p id="error">API Key가 올바르지 않습니다.</p>
+    <p id="error">로그인에 실패했습니다. 자격 증명을 확인하세요.</p>
   </div>
 </div>
 
@@ -129,8 +134,9 @@
   <!-- ░░░ DNS 탭 ░░░ -->
   <div id="tab-dns" style="display:none">
     <div class="solid-note">
-      내부 DNS 레코드는 현재 <strong>모의(Mock)</strong> 입니다. 실제 해석은 <code>.solid.internal</code> 존 관리 권한 확보 후 동작합니다.
-      값(VM 사설 IP)은 SOLID(CloudStack)에서 받아옵니다(현재 샘플).
+      A 레코드는 <strong>VM을 선택</strong>하면 서버가 SOLID(CloudStack)에서 사설 IP를 조회·소유권을 검증해 채웁니다.
+      <code>.solid.internal</code> 존 반영은 DNS Server의 CoreDNS가 담당합니다
+      (<code>dns.zone.file</code> 미설정 시 모의).
     </div>
 
     <!-- 관리형 존 헤더 (Google Cloud DNS 스타일) -->
@@ -199,6 +205,10 @@
 
   <!-- ░░░ 터널링 탭 ░░░ -->
   <div id="tab-tunnel" style="display:none">
+    <div class="solid-note" style="background:#fef3c7;border-color:#fcd34d;color:#92400e">
+      터널링은 <strong>후속 단계</strong>입니다. 현재 로그인은 SOLID 인증으로 전환되어, 이 탭의 일부 기능(서비스/연결 등록)은
+      SOLID 인증 이관 전까지 동작하지 않을 수 있습니다. DNS 기능을 먼저 사용하세요.
+    </div>
     <div class="solid-seg">
       <button id="segbtn-outbound" onclick="showMode('outbound')">아웃바운드 (외부 → 접근)</button>
       <button id="segbtn-inbound" onclick="showMode('inbound')">인바운드 (외부 ← SOLID 공개)</button>
@@ -358,13 +368,19 @@ async function init() {
 }
 
 async function doLogin() {
-    const key = document.getElementById('api-key').value.trim();
-    if (!key) return;
+    const username = document.getElementById('login-username').value.trim();
+    const password = document.getElementById('login-password').value;
+    const domain = document.getElementById('login-domain').value.trim();
+    if (!username || !password) return;
     setApiBase(document.getElementById('api-base').value);
-    const res = await fetch(apiUrl('/api/users/me'), { headers: { Authorization: 'Bearer ' + key } });
+    const res = await fetch(apiUrl('/api/auth/login'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password, domain })
+    });
     if (!res.ok) { document.getElementById('error').style.display = 'block'; return; }
-    const user = await res.json();
-    setAuth(key, user.email);
+    const data = await res.json();
+    setAuth(data.token, data.account);
     showMain();
 }
 
@@ -436,17 +452,18 @@ async function loadDnsRecords() {
     const rows = dnsRecords.map(r => `
       <tr>
         <td>${dnsTypeBadge(r.type)}</td>
-        <td><code>${escapeHtml(fqdnToHost(r.name))}</code></td>
-        <td><code>${escapeHtml(r.value)}</code></td>
+        <td><code>${escapeHtml(r.fqdn || r.name)}</code></td>
+        <td><code>${escapeHtml(r.value)}</code>${r.vmName ? ` <span style="color:#94a3b8;font-size:12px">(${escapeHtml(r.vmName)})</span>` : ''}</td>
+        <td>${dnsStatusBadge(r.status)}</td>
         <td>${ttlLabel(r.ttl)}</td>
         <td>
           <button class="btn btn-outline btn-sm" onclick="editDnsRecord('${r.id}')">수정</button>
-          <button class="btn btn-outline btn-sm" onclick="deleteDnsRecord('${r.id}','${encodeURIComponent(r.name)}')">삭제</button>
+          <button class="btn btn-outline btn-sm" onclick="deleteDnsRecord('${r.id}','${escapeHtml(r.fqdn || r.name)}')">삭제</button>
         </td>
       </tr>`).join('');
     el.innerHTML = `
       <table>
-        <thead><tr><th>타입</th><th>호스트</th><th>값</th><th>TTL</th><th></th></tr></thead>
+        <thead><tr><th>타입</th><th>호스트</th><th>값</th><th>상태</th><th>TTL</th><th></th></tr></thead>
         <tbody>${rows}</tbody>
       </table>`;
 }
@@ -467,7 +484,7 @@ async function toggleDnsForm(show) {
     }
 }
 
-function editDnsRecord(id) {
+async function editDnsRecord(id) {
     const r = dnsRecords.find(x => x.id === id);
     if (!r) return;
     dnsEditId = id;
@@ -475,43 +492,66 @@ function editDnsRecord(id) {
     document.getElementById('dns-add-btn').style.display = 'none';
     document.getElementById('dns-error').style.display = 'none';
     document.getElementById('dns-type').value = r.type;
-    document.getElementById('dns-name').value = fqdnToHost(r.name);
-    document.getElementById('dns-value').value = r.value;
+    document.getElementById('dns-name').value = (r.name === '@') ? '' : r.name;
     document.getElementById('dns-ttl').value = String(r.ttl);
     onDnsTypeChange();
-    populateVmSelect('dns-vm');
+    await populateVmSelect('dns-vm');
+    if (r.type === 'A' && r.vmId) document.getElementById('dns-vm').value = r.vmId;
+    document.getElementById('dns-value').value = r.value || '';
     document.getElementById('dns-submit-btn').textContent = '수정 저장';
 }
 
 function onDnsTypeChange() {
     const isA = document.getElementById('dns-type').value === 'A';
+    const val = document.getElementById('dns-value');
     document.getElementById('dns-vm-group').style.display = isA ? 'block' : 'none';
-    document.getElementById('dns-value-label').textContent = isA ? '값 (VM 사설 IP)' : '값 (대상 호스트)';
-    document.getElementById('dns-value').placeholder = isA ? '10.0.10.11' : 'web.solid.internal';
+    document.getElementById('dns-value-label').textContent = isA ? '값 (VM 사설 IP · 자동)' : '값 (대상 호스트)';
+    val.placeholder = isA ? 'VM 선택 시 자동 입력' : 'web.solid.internal';
+    val.readOnly = isA;          // A는 서버가 vmId로 IP를 채움 → 읽기 전용
+    if (isA && !dnsEditId) val.value = '';
 }
 
 function onDnsVmChange() {
-    const ip = document.getElementById('dns-vm').value;
-    if (ip) document.getElementById('dns-value').value = ip;
+    const sel = document.getElementById('dns-vm');
+    const opt = sel.options[sel.selectedIndex];
+    document.getElementById('dns-value').value = (opt && opt.dataset.ip) ? opt.dataset.ip : '';
+}
+
+async function dnsErrMsg(res) {
+    try { const j = await res.json(); return (j && j.error && j.error.message) || ('오류 ' + res.status); }
+    catch (e) { return '오류 ' + res.status; }
+}
+function showDnsError(msg) {
+    const err = document.getElementById('dns-error');
+    err.textContent = msg || 'DNS 레코드 저장 실패';
+    err.style.display = 'block';
 }
 
 async function submitDnsRecord() {
     const type = document.getElementById('dns-type').value;
-    const name = hostToFqdn(document.getElementById('dns-name').value);
-    const value = document.getElementById('dns-value').value.trim();
+    const name = document.getElementById('dns-name').value.trim();  // 짧은 라벨(서버가 정규화)
     const ttl = parseInt(document.getElementById('dns-ttl').value) || 3600;
-    const err = document.getElementById('dns-error');
-    err.style.display = 'none';
-    const body = JSON.stringify({ type, name, value, ttl });
+    document.getElementById('dns-error').style.display = 'none';
+
+    let payload;
+    if (type === 'A') {
+        const vmId = document.getElementById('dns-vm').value;
+        if (!dnsEditId && !vmId) { showDnsError('VM을 선택하세요. A 레코드는 VM에서 사설 IP를 가져옵니다.'); return; }
+        payload = vmId ? { type, name, vmId, ttl } : { type, name, ttl };
+    } else {
+        const value = document.getElementById('dns-value').value.trim();
+        payload = { type, name, value, ttl };
+    }
+    const body = JSON.stringify(payload);
     const res = dnsEditId
         ? await apiFetch('/api/dns/records/' + dnsEditId, { method: 'PATCH', body })
         : await apiFetch('/api/dns/records', { method: 'POST', body });
     if (res.ok) { toggleDnsForm(false); loadDnsRecords(); }
-    else { err.textContent = (await res.text()) || 'DNS 레코드 저장 실패'; err.style.display = 'block'; }
+    else { showDnsError(await dnsErrMsg(res)); }
 }
 
-async function deleteDnsRecord(id, name) {
-    if (!confirm(`DNS 레코드 "${fqdnToHost(decodeURIComponent(name))}" 를 삭제할까요?`)) return;
+async function deleteDnsRecord(id, label) {
+    if (!confirm(`DNS 레코드 "${label}" 를 삭제할까요?`)) return;
     const res = await apiFetch('/api/dns/records/' + id, { method: 'DELETE' });
     if (res.ok) loadDnsRecords();
 }
@@ -563,8 +603,8 @@ function onSvcVmChange() {
     const sel = document.getElementById('svc-vm');
     const opt = sel.options[sel.selectedIndex];
     if (!opt || !opt.value) return;
-    document.getElementById('svc-instance').value = opt.dataset.instance || '';
-    document.getElementById('svc-ip').value = opt.value;
+    document.getElementById('svc-instance').value = opt.value;        // instanceId
+    document.getElementById('svc-ip').value = opt.dataset.ip || '';   // 사설 IP
 }
 
 function onAccessPolicyChange() {
@@ -668,9 +708,9 @@ async function loadColabSession() {
 async function populateVmSelect(selectId) {
     const sel = document.getElementById(selectId);
     const vms = await fetchVms();
-    sel.innerHTML = '<option value="">— 직접 입력 —</option>' + vms.map(v =>
-        `<option value="${escapeHtml(v.privateIp)}" data-instance="${escapeHtml(v.instanceId)}">`
-        + `${escapeHtml(v.instanceId)} · ${escapeHtml(v.privateIp)} (${escapeHtml(v.state)})</option>`).join('');
+    sel.innerHTML = '<option value="">— 선택 —</option>' + vms.map(v =>
+        `<option value="${escapeHtml(v.instanceId)}" data-ip="${escapeHtml(v.privateIp)}" data-name="${escapeHtml(v.displayName || '')}">`
+        + `${escapeHtml(v.displayName || v.instanceId)} · ${escapeHtml(v.privateIp)} (${escapeHtml(v.state)})</option>`).join('');
 }
 
 init();

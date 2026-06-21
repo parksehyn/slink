@@ -151,6 +151,25 @@ journalctl -u slink-dns-agent -f
 ### 더 상용처럼(push) 가려면
 CoreDNS+폴링 대신 **PowerDNS(REST API)** 로 바꾸고 `RealDnsProvider`가 API로 PUT. Relay가 DNS 서버에 직접 닿아야 함(같은 사설망이면 OK). 코드는 `DnsProvider` 인터페이스만 교체.
 
+## 7. 통합 방식 — 앱이 zone을 직접 작성 (dns-agent 불필요, 권장)
+
+DNS Server VM에 **CoreDNS와 Spring 앱(DNS 기능)을 같이** 올리면, 앱의 `ZoneFileDnsProvider`가
+레코드 변경 시 zone 파일을 직접 재작성 + SOA serial을 증가시킨다. → 별도 `dns-agent.py` 폴링이 필요 없다
+(원격 저장소를 폴링하는 6번 방식의 대안). 레코드 저장도 같은 VM의 파일에 영속된다.
+
+```bash
+# DNS Server VM (CoreDNS와 동일 VM)에서 앱 실행
+export DNS_ZONE_FILE=/etc/coredns/db.solid.internal   # = dns.zone.file
+export DNS_ZONE_NAME=solid.internal
+export DNS_ZONE_NS_IP=10.0.10.10                       # 이 DNS VM 자신
+export DNS_STORE_FILE=/var/lib/slink/dns-records.json  # 레코드 영속(재시작 유지)
+# (선택) 실제 CloudStack: export CLOUDSTACK_API_URL=https://dku.kloud.zone/client/api
+java -jar slink-relay.jar    # 또는 ./gradlew bootRun
+```
+> Spring은 `DNS_ZONE_FILE` 같은 환경변수를 `dns.zone.file` 프로퍼티로 자동 매핑한다.
+> `dns.zone.file` 미설정 시 앱은 로그만 남기는 Mock으로 동작(데모/테스트).
+> 이 통합 방식에서는 zone 파일을 **앱이 자동 관리**하므로 직접 편집 금지(덮어써짐).
+
 ## 트러블슈팅
 
 | 증상 | 원인 | 해결 |

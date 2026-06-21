@@ -19,24 +19,22 @@ class VmApiTest {
 
     @Autowired WebApplicationContext context;
     MockMvc mvc;
-    String apiKey;
+    String token;
 
     @BeforeEach
     void setup() throws Exception {
         mvc = MockMvcBuilders.webAppContextSetup(context).build();
-        long ts = System.nanoTime();
-        String email = "vm-test-" + ts + "@dankook.ac.kr";
-        String studentId = "V" + Math.abs(ts % 10_000_000L);
-        String regJson = mvc.perform(post("/api/users/register")
+        String json = mvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"studentId\":\"" + studentId + "\",\"email\":\"" + email + "\"}"))
+                        .content("{\"username\":\"32211690\",\"password\":\"pw\"}"))
+                .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
-        apiKey = JsonPath.read(regJson, "$.apiKey");
+        token = JsonPath.read(json, "$.token");
     }
 
     @Test
     void list_returnsVms() throws Exception {
-        mvc.perform(get("/api/vms").header("Authorization", "Bearer " + apiKey))
+        mvc.perform(get("/api/vms").header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$").isArray())
                 .andExpect(jsonPath("$[0].instanceId").isNotEmpty())

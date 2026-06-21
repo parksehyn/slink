@@ -495,6 +495,28 @@ SOLID VM           → Relay 서버   ← VPN으로 가능
 - [ ] 영속 저장소 도입 (서버 재시작 후 서비스 목록 유지)
 - [ ] 학생별 공개 서비스 개수 및 TTL 정책 적용
 
+### DNS 서비스 실연동 + SOLID 인증 (2026-06-21)
+
+명세서([dns-api-spec.md](dns-api-spec.md)) 기준으로 DNS 기능을 **DNS Server VM 자족형 백엔드**로 재구성.
+터널링 Relay와 분리. ([설계: tabs-redesign 후속, 본 작업의 플랜 반영])
+
+- [x] **SOLID 세션 인증** — `AuthService`/`AuthController`(`/api/auth/login·me·logout`). 학번/비밀번호 →
+  CloudStack `login` → 불투명 토큰(`slk-…`, sessionkey 서버 보관). DNS·VM 엔드포인트가 `sk-dku-` 대신 이걸 사용.
+  `ownerId = account(학번)`. 미설정 시 Mock(임의 자격).
+- [x] **vmId 기반 A 레코드** — 프론트는 vmId만 전송, 서버가 CloudStack에서 사설 IP 조회 + 소유권 검증(§5.2/§7.3).
+  CNAME은 대상 호스트. (`CreateDnsRecordRequest.vmId`, `CloudStackProvider.findVm`)
+- [x] **검증·상태·응답 정합** — 사설 IP 대역(10.0.0.0/8) 검증, 상태값(`PENDING_SYNC/ACTIVE/FAILED`),
+  응답 `fqdn/vmId/vmName/status`, 표준 에러 엔벨로프(§10), 단건 조회 `GET /{id}`.
+- [x] **파일 영속** — `dns.store.file` 설정 시 레코드를 JSON으로 저장/로드(인메모리 대체).
+- [x] **CoreDNS 직접 반영** — `ZoneFileDnsProvider`(`dns.zone.file`)가 zone 파일 재작성 + SOA serial 증가
+  → Corefile `reload`가 자동 반영(dns-agent 폴링 불필요). 미설정 시 기존 `MockDnsProvider`.
+- [x] **실제 CloudStack 골격** — `SolidCloudStackProvider`(`cloudstack.api.url` 설정 시 활성, `listVirtualMachines`).
+- [x] **프론트 DNS 탭** — SOLID 로그인 폼, VM 선택→vmId 전송, 상태·fqdn·vmName 표시, 에러 엔벨로프 파싱.
+- [x] 테스트 갱신/추가(`Auth/Vm/DnsRecord/DnsPersistence ApiTest`), end-to-end HTTP 스모크 통과(Mock).
+
+> 후속(이번 범위 아님): 터널링, Colab CLI·VM Agent·SessionController의 `sk-dku-` 제거,
+> 실제 CloudStack 자격증명/존 권한 발급(운영팀).
+
 ## 다음 단계
 
 - [ ] VM 간 임의 포트 접근 가능 여부 확인

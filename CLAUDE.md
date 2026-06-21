@@ -68,18 +68,20 @@ docs/             설계·로드맵·진행 문서
 | 경로 | 용도 |
 |------|------|
 | `POST/GET/DELETE /api/session/*` | Colab 세션 (기존) |
-| `POST /api/users/register`, `GET /api/users/me` | 사용자 인증 |
+| `POST /api/auth/login`, `GET /api/auth/me`, `POST /api/auth/logout` | SOLID(CloudStack) 세션 인증 — DNS·VM (토큰 `slk-…`) |
+| `POST /api/users/register`, `GET /api/users/me` | slink 자체 키 발급 — Colab CLI·VM Agent 전용 (`sk-dku-…`) |
 | `POST/GET/PATCH/DELETE /api/services/*` | Service Registry (인바운드) + 접근 정책 |
 | `POST/DELETE /api/services/{id}/publish` | 외부 공개 제어 |
-| `GET/POST /api/dns/records`, `PATCH/DELETE /api/dns/records/{id}` | 내부 DNS 레코드(A/CNAME, 모의) |
+| `GET/POST /api/dns/records`, `GET/PATCH/DELETE /api/dns/records/{id}` | 내부 DNS 레코드(A=vmId 기반·소유권/사설IP 검증, CNAME). SOLID 인증·표준 에러 |
 | `GET/POST /api/connections`, `DELETE /api/connections/{id}` | 아웃바운드 외부 연결 |
-| `GET /api/vms` | 내 SOLID VM 목록 (CloudStack, 모의) |
+| `GET /api/vms` | 내 SOLID VM 목록 (CloudStack, SOLID 인증, 모의 가능) |
 | `POST /api/agents/register`, `/{id}/heartbeat`, `/{id}/report` | VM Agent |
 
 ## 관련 문서
 
 - [`docs/service-portal-design.md`](docs/service-portal-design.md) — Service Portal 상세 설계 (기준 문서)
 - [`docs/tabs-redesign.md`](docs/tabs-redesign.md) — 도메인/터널링 탭 재구성 확정 설계 + 구현 플랜
+- [`docs/dns-api-spec.md`](docs/dns-api-spec.md) — DNS 서비스 API 명세 + 구현 현황 (SOLID 인증·vmId 기반·DNS Server VM 자족형)
 - [`docs/roadmap.md`](docs/roadmap.md) — 단계별 구현 계획
 - [`docs/progress.md`](docs/progress.md) — 구현 완료 기능 기록
 - [`docs/demo-theory.md`](docs/demo-theory.md) — 외부 공개(역방향 터널링) 데모 동작 이론

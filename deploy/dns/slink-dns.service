@@ -1,0 +1,21 @@
+[Unit]
+# slink DNS 백엔드(자족형): 앱이 CoreDNS zone 파일을 직접 작성한다.
+# CoreDNS와 같은 VM(solid-D)에서 실행. dns-agent.py와 동시 사용 금지(zone 파일 충돌).
+Description=slink DNS backend (writes CoreDNS zone directly)
+After=network.target
+
+[Service]
+User=ubuntu
+# 아래 값들을 본인 환경에 맞게 수정 (특히 DNS_ZONE_NS_IP = 이 DNS VM의 사설 IP)
+Environment=PORT=8081
+Environment=CLOUDSTACK_API_URL=https://dku.kloud.zone/client/api
+Environment=DNS_ZONE_FILE=/etc/coredns/db.solid.internal
+Environment=DNS_ZONE_NAME=solid.internal
+Environment=DNS_ZONE_NS_IP=10.0.11.23
+Environment=DNS_STORE_FILE=/var/lib/slink/dns-records.json
+ExecStart=/usr/bin/java -jar /opt/slink/slink.jar
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
