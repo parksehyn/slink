@@ -83,6 +83,7 @@ docs/             설계·로드맵·진행 문서
 - [`docs/tabs-redesign.md`](docs/tabs-redesign.md) — 도메인/터널링 탭 재구성 확정 설계 + 구현 플랜
 - [`docs/dns-api-spec.md`](docs/dns-api-spec.md) — DNS 서비스 API 명세 + 구현 현황 (SOLID 인증·vmId 기반·DNS Server VM 자족형)
 - [`docs/dns-naming-policy.md`](docs/dns-naming-policy.md) — 내부 DNS 이름 정책 (전역 유일=현재 / 학번 네임스페이스=검토, 미팅 논의용)
+- [`docs/todo-next.md`](docs/todo-next.md) — 다음 작업 TODO + 미팅 안건 + 재개 치트시트 (DNS 이후)
 - [`docs/roadmap.md`](docs/roadmap.md) — 단계별 구현 계획
 - [`docs/progress.md`](docs/progress.md) — 구현 완료 기능 기록
 - [`docs/demo-theory.md`](docs/demo-theory.md) — 외부 공개(역방향 터널링) 데모 동작 이론
