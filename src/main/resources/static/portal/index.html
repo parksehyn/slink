@@ -114,9 +114,8 @@
     <input type="password" id="login-password" placeholder="••••••••" autocomplete="current-password"
            onkeydown="if(event.key==='Enter')doLogin()">
     <label for="login-domain">도메인 <span style="color:#94a3b8">(선택)</span></label>
-    <input type="text" id="login-domain" placeholder="SW" autocomplete="off">
-    <label for="api-base">Relay 주소 <span style="color:#94a3b8">(비우면 현재 서버)</span></label>
-    <input type="text" id="api-base" placeholder="http://10.0.10.20:8081" autocomplete="off">
+    <input type="text" id="login-domain" placeholder="SW" autocomplete="off"
+           onkeydown="if(event.key==='Enter')doLogin()">
     <button class="btn btn-primary" onclick="doLogin()" style="width:100%">로그인</button>
     <p id="error">로그인에 실패했습니다. 자격 증명을 확인하세요.</p>
   </div>
@@ -360,7 +359,6 @@
 <script>
 // ── 인증 / 진입 ──────────────────────────────────────────────────────────────
 async function init() {
-    document.getElementById('api-base').value = getApiBase();
     if (getApiKey()) {
         const ok = await requireAuth();
         if (ok) showMain();
@@ -372,7 +370,6 @@ async function doLogin() {
     const password = document.getElementById('login-password').value;
     const domain = document.getElementById('login-domain').value.trim();
     if (!username || !password) return;
-    setApiBase(document.getElementById('api-base').value);
     const res = await fetch(apiUrl('/api/auth/login'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
