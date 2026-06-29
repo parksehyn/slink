@@ -1,7 +1,11 @@
 # slink 기능 로드맵
 
-> 최종 업데이트: 2026-06-08  
+> 최종 업데이트: 2026-06-23
 > 상세 설계: [SOLID Service Portal 설계](service-portal-design.md)
+>
+> ⚠️ 이 문서는 **전체 단계 계획**이다. 아래 4단계(내부 DNS)는 그 후 `feat/dns-solid-auth`
+> 브랜치에서 **구현 완료**됐다(main 미병합). 최신 진행 현황은 항상
+> [progress.md](progress.md) · [todo-next.md](todo-next.md)를 기준으로 본다.
 
 ## 제품 방향
 
@@ -135,11 +139,12 @@ Quick Tunnel은 임의의 `trycloudflare.com` 주소를 발급한다. 고정된 
 - [ ] 학생별 공개 서비스 개수 제한
 - [ ] Agent 재시작 시 기존 터널 복원 (영속 상태)
 
-### 4. 내부 DNS
+### 4. 내부 DNS — ✅ 코어 구현 완료 (`feat/dns-solid-auth`, 명세: [dns-api-spec.md](dns-api-spec.md))
 
-- [ ] 내부 DNS 서버 기술 선택 및 배포
-- [ ] 서비스 생성·변경·삭제와 DNS 레코드 연동
-- [ ] OpenVPN 클라이언트와 SOLID VM의 DNS 설정 연동
+- [x] 내부 DNS 서버 기술 선택 및 배포 (CoreDNS + DNS Server VM 자족형 백엔드)
+- [x] DNS 레코드 생성·변경·삭제 ↔ zone 반영 연동 (`/api/dns/records`, vmId 기반·소유권 검증)
+- [x] 멀티유저 이름 정책 (전역 유일 + 예약어·개수상한·방치회수, [dns-naming-policy.md](dns-naming-policy.md))
+- [ ] OpenVPN 클라이언트와 SOLID VM의 DNS 설정 연동 (**운영팀 의존** — [internal-dns-requirements.md](internal-dns-requirements.md))
 - [ ] 팀 및 Private Network별 조회 권한 적용 (후속 확장)
 - [ ] VM IP 변경과 삭제에 따른 자동 갱신
 
@@ -154,7 +159,8 @@ Quick Tunnel은 임의의 `trycloudflare.com` 주소를 발급한다. 고정된 
 
 ## 현재 구현 완료 요약
 
-1단계(Service Registry API), 2단계(웹 포털 MVP), 3단계(VM Agent 외부 공개 MVP)가 완료되었다.
+1단계(Service Registry API), 2단계(웹 포털 MVP), 3단계(VM Agent 외부 공개 MVP), 그리고
+4단계 코어(내부 DNS — SOLID 인증·vmId 기반·CoreDNS 연동·이름 정책, `feat/dns-solid-auth`)가 완료되었다.
 
 ```text
 완료:
@@ -168,10 +174,11 @@ Quick Tunnel은 임의의 `trycloudflare.com` 주소를 발급한다. 고정된 
 - 통합 테스트 49개
 
 남아있는 것:
-- 실제 내부 DNS 배포 — SOLID 운영 환경의 DNS 설정 권한 확인 후 진행
-- CloudStack API 연동 (VM 소유권 검증)
-- 영속 저장소 (재시작 시 서비스 목록 유지)
+- 내부 DNS 실연동 — OpenVPN DNS push·VM resolver 설정 등 운영팀 의존 (internal-dns-requirements.md)
+- 터널링 트랙 본격화 + sk-dku- 전면 제거 (별도 트랙, todo-next.md)
+- 영속 저장소 (서비스 목록 — DNS 레코드는 이미 파일 영속)
 - 학생별 공개 서비스 개수 제한
 ```
 
-다음은 4단계(내부 DNS)와 5단계(운영 기능)이며, 교수님 미팅에서 운영 정책·자원 확보 논의 후 진행한다.
+다음은 4단계 실연동(운영팀 협의)과 5단계(운영 기능)이며, 교수님 미팅에서 운영 정책·자원 확보 논의 후 진행한다.
+세부 다음 작업은 [todo-next.md](todo-next.md), 완료 현황은 [progress.md](progress.md) 참고.

@@ -5,9 +5,9 @@ import com.solid.connectgpu.dto.PublishRequest;
 import com.solid.connectgpu.dto.ServiceResponse;
 import com.solid.connectgpu.dto.UpdateServiceRequest;
 import com.solid.connectgpu.model.ServiceEntry;
-import com.solid.connectgpu.model.User;
+import com.solid.connectgpu.model.SolidIdentity;
+import com.solid.connectgpu.service.AuthService;
 import com.solid.connectgpu.service.ServiceRegistry;
-import com.solid.connectgpu.service.UserService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -18,19 +18,19 @@ import java.util.List;
 public class ServiceController {
 
     private final ServiceRegistry registry;
-    private final UserService userService;
+    private final AuthService authService;
 
-    public ServiceController(ServiceRegistry registry, UserService userService) {
+    public ServiceController(ServiceRegistry registry, AuthService authService) {
         this.registry = registry;
-        this.userService = userService;
+        this.authService = authService;
     }
 
     @GetMapping
     public ResponseEntity<List<ServiceResponse>> list(@RequestHeader(value = "Authorization", required = false) String auth) {
-        User user = authenticate(auth);
-        if (user == null) return ResponseEntity.status(401).build();
+        SolidIdentity id = authenticate(auth);
+        if (id == null) return ResponseEntity.status(401).build();
         return ResponseEntity.ok(
-                registry.findByOwner(user.getEmail()).stream().map(this::toResponse).toList()
+                registry.findByOwner(id.account()).stream().map(this::toResponse).toList()
         );
     }
 
@@ -38,10 +38,10 @@ public class ServiceController {
     public ResponseEntity<?> create(
             @RequestHeader(value = "Authorization", required = false) String auth,
             @RequestBody CreateServiceRequest req) {
-        User user = authenticate(auth);
-        if (user == null) return ResponseEntity.status(401).build();
+        SolidIdentity identity = authenticate(auth);
+        if (identity == null) return ResponseEntity.status(401).build();
         try {
-            ServiceEntry entry = registry.create(user.getEmail(), req);
+            ServiceEntry entry = registry.create(identity, req);
             return ResponseEntity.status(201).body(toResponse(entry));
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(e.getMessage());
@@ -52,10 +52,10 @@ public class ServiceController {
     public ResponseEntity<ServiceResponse> get(
             @PathVariable String id,
             @RequestHeader(value = "Authorization", required = false) String auth) {
-        User user = authenticate(auth);
-        if (user == null) return ResponseEntity.status(401).build();
+        SolidIdentity identity = authenticate(auth);
+        if (identity == null) return ResponseEntity.status(401).build();
         return registry.findById(id)
-                .filter(e -> e.getOwnerId().equals(user.getEmail()))
+                .filter(e -> e.getOwnerId().equals(identity.account()))
                 .map(e -> ResponseEntity.ok(toResponse(e)))
                 .orElse(ResponseEntity.notFound().build());
     }
@@ -65,10 +65,10 @@ public class ServiceController {
             @PathVariable String id,
             @RequestHeader(value = "Authorization", required = false) String auth,
             @RequestBody UpdateServiceRequest req) {
-        User user = authenticate(auth);
-        if (user == null) return ResponseEntity.status(401).build();
+        SolidIdentity identity = authenticate(auth);
+        if (identity == null) return ResponseEntity.status(401).build();
         try {
-            return registry.update(id, user.getEmail(), req)
+            return registry.update(id, identity.account(), req)
                     .map(e -> ResponseEntity.ok(toResponse(e)))
                     .orElse(ResponseEntity.notFound().build());
         } catch (IllegalArgumentException e) {
@@ -80,9 +80,9 @@ public class ServiceController {
     public ResponseEntity<Void> delete(
             @PathVariable String id,
             @RequestHeader(value = "Authorization", required = false) String auth) {
-        User user = authenticate(auth);
-        if (user == null) return ResponseEntity.status(401).build();
-        return registry.delete(id, user.getEmail())
+        SolidIdentity identity = authenticate(auth);
+        if (identity == null) return ResponseEntity.status(401).build();
+        return registry.delete(id, identity.account())
                 ? ResponseEntity.noContent().build()
                 : ResponseEntity.notFound().build();
     }
@@ -92,27 +92,31 @@ public class ServiceController {
             @PathVariable String id,
             @RequestHeader(value = "Authorization", required = false) String auth,
             @RequestBody PublishRequest req) {
-        User user = authenticate(auth);
-        if (user == null) return ResponseEntity.status(401).build();
-        return registry.publish(id, user.getEmail(), req.ttlHours())
-                .map(e -> ResponseEntity.ok(toResponse(e)))
-                .orElse(ResponseEntity.notFound().build());
+        SolidIdentity identity = authenticate(auth);
+        if (identity == null) return ResponseEntity.status(401).build();
+        try {
+            return registry.publish(id, identity.account(), req.ttlHours())
+                    .map(e -> ResponseEntity.ok(toResponse(e)))
+                    .orElse(ResponseEntity.notFound().build());
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
     }
 
     @DeleteMapping("/{id}/publish")
     public ResponseEntity<?> unpublish(
             @PathVariable String id,
             @RequestHeader(value = "Authorization", required = false) String auth) {
-        User user = authenticate(auth);
-        if (user == null) return ResponseEntity.status(401).build();
-        return registry.unpublish(id, user.getEmail())
+        SolidIdentity identity = authenticate(auth);
+        if (identity == null) return ResponseEntity.status(401).build();
+        return registry.unpublish(id, identity.account())
                 .map(e -> ResponseEntity.ok(toResponse(e)))
                 .orElse(ResponseEntity.notFound().build());
     }
 
-    private User authenticate(String auth) {
+    private SolidIdentity authenticate(String auth) {
         if (auth == null || !auth.startsWith("Bearer ")) return null;
-        return userService.findByApiKey(auth.substring(7));
+        return authService.resolve(auth.substring(7)).orElse(null);
     }
 
     private ServiceResponse toResponse(ServiceEntry e) {

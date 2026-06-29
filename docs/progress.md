@@ -1,6 +1,6 @@
 # Solid-Link (slink) — 진행 현황 문서
 
-> 최종 업데이트: 2026-05-24
+> 최종 업데이트: 2026-06-24
 
 ## 프로젝트 목표
 
@@ -516,6 +516,49 @@ SOLID VM           → Relay 서버   ← VPN으로 가능
 
 > 후속(이번 범위 아님): 터널링, Colab CLI·VM Agent·SessionController의 `sk-dku-` 제거,
 > 실제 CloudStack 자격증명/존 권한 발급(운영팀).
+
+### 터널링 SOLID 인증 통일 + vmId 기반 서비스 (2026-06-24, Phase 1)
+
+DNS와 동일하게 터널링(인바운드 서비스 / 아웃바운드 연결 / VM Agent 등록)을 **SOLID 세션 인증(`slk-`)**으로 통일.
+두 방식 = 기존 아웃바운드(`/api/connections`)·인바운드(`/api/services`+publish+Agent) 트랙에 매핑.
+
+- [x] **인증 통일(1A)** — `ServiceController`·`OutboundConnectionController`·`VmAgentController(register)`가
+  `UserService.findByApiKey()`(`sk-dku-`) → `AuthService.resolve()`(`slk-`)로 전환. `ownerId = identity.account()`(학번).
+  heartbeat/report는 등록 시 발급한 에이전트 토큰(`at-`) 유지.
+- [x] **vmId 기반 인바운드 서비스(1A)** — `CreateServiceRequest`에서 `privateIp` 제거. `instanceId`만 받아
+  `cloudStack.findVm()`으로 사설 IP·소유권을 서버가 채움(DNS A 레코드와 동일, 자기신고 IP 차단).
+- [x] **테스트 이전(1A)** — `ServiceApiTest`·`AgentApiTest`·`ConnectionApiTest`를 SOLID 로그인 + 실제 소유 vmId +
+  학번 기반으로 이전. 전체 빌드 그린(회귀 없음).
+- [x] **포털 폼(1B)** — 인바운드 서비스 생성 폼을 VM 선택 필수로(인스턴스·IP 읽기 전용·서버가 채움), 수동 `privateIp` 전송 제거. 낡은 "동작 안 함" 경고 배너 갱신.
+- [x] **CLI(1B)** — `slink agent start`가 SOLID 로그인(`/api/auth/login`)으로 등록 → `slk-` → `at-` 발급.
+  `--username/--password/--domain` + `SLINK_SOLID_PASSWORD`(헤드리스/systemd). Colab `/api/session`은 `sk-dku-` 유지.
+
+후속:
+- [ ] **Phase 2 — AccessPolicy 실제 시행**: 이메일 허용목록 + Cloudflare Access(계정·고정 도메인 확보 후). 현재 모델·UI만.
+- [ ] VM Agent 등록 시 CloudStack instanceId 소유권 검증(방어적, 교차누출은 `(instanceId, ownerId)` 스코핑으로 이미 차단).
+- [ ] Colab `/api/session`·`UserService`의 `sk-dku-` 최종 제거.
+
+### 터널링 영속화 + 학생당 제한 + Relay on VM 골격 (2026-06-29)
+
+DNS(`dns.store.file`)에 이어 **터널링/서비스도 파일 영속**으로. Railway→SOLID VM 이전 시
+재시작·재부팅에도 상태가 보존된다(DNS 패턴 미러: Snapshot record + 원자적 tmp→move).
+
+- [x] **서비스 영속** — `ServiceRegistry`(`service.store.file`). 상태(PUBLIC/PENDING·pendingCommand·
+  publicUrl 등)까지 round-trip. 기동 시 INTERNAL/TEAM은 내부 DNS 레코드 재등록.
+- [x] **아웃바운드 연결 영속** — `OutboundConnectionRegistry`(`connection.store.file`).
+- [x] **VM Agent 영속** — `VmAgentRegistry`(`agent.store.file`). `at-` 토큰 보존 → Relay 재시작 후
+  재등록 불필요. 삭제 서비스의 고아 CLOSE_TUNNEL 명령도 보존. 하트비트는 영속 제외(thrash 방지).
+- [x] **학생당 서비스 제한** — `service.max-per-owner`(기본 10), `service.max-public-per-owner`(기본 3).
+  초과 시 400. 수치는 `application.properties`로 조정.
+- [x] **Relay on SOLID VM 배포 골격** — `deploy/relay/`(slink-relay.service·redeploy.sh·README,
+  `deploy/dns/` 미러). 사설망/VPN 내부 전용. Colab 도달용 Named Tunnel은 후속.
+- [x] **도달성 문서 정정** — relay가 사설 VM이어도 **아웃바운드 소비·인바운드 INTERNAL은 동작**
+  (relay는 URL 장부, 데이터는 SOLID 아웃바운드 인터넷). 공인 경로는 Colab 자동등록·인바운드
+  외부공개에서만 필요. [relay-on-vm.md](relay-on-vm.md) §1, [tabs-redesign.md](tabs-redesign.md) §5.1.
+- [x] 테스트(`TunnelingPersistenceTest` round-trip 3건, `ServiceLimitTest` 2건) + 기존 회귀 그린.
+
+> 후속(이번 범위 아님): Colab `sk-dku-` 제거 = **포털 발급 Colab 토큰**(SOLID 로그인 후 포털에서
+> Colab 전용 토큰 발급→Colab Secret). AccessPolicy 실제 시행·Named Tunnel(Cloudflare 계정·도메인 후).
 
 ## 다음 단계
 

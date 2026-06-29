@@ -4,10 +4,10 @@ import com.solid.connectgpu.dto.AgentHeartbeatResponse;
 import com.solid.connectgpu.dto.AgentRegisterRequest;
 import com.solid.connectgpu.dto.AgentRegisterResponse;
 import com.solid.connectgpu.dto.AgentReportRequest;
-import com.solid.connectgpu.model.User;
+import com.solid.connectgpu.model.SolidIdentity;
 import com.solid.connectgpu.model.VmAgent;
+import com.solid.connectgpu.service.AuthService;
 import com.solid.connectgpu.service.ServiceRegistry;
-import com.solid.connectgpu.service.UserService;
 import com.solid.connectgpu.service.VmAgentRegistry;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -23,37 +23,39 @@ public class VmAgentController {
 
     private final VmAgentRegistry agentRegistry;
     private final ServiceRegistry serviceRegistry;
-    private final UserService userService;
+    private final AuthService authService;
 
     public VmAgentController(VmAgentRegistry agentRegistry,
                              ServiceRegistry serviceRegistry,
-                             UserService userService) {
+                             AuthService authService) {
         this.agentRegistry = agentRegistry;
         this.serviceRegistry = serviceRegistry;
-        this.userService = userService;
+        this.authService = authService;
     }
 
     /**
      * VM Agent registers itself with the Relay.
      *
-     * Requires a valid user Bearer token so the agent is bound to a specific student account.
+     * Requires a valid SOLID session token (slk-) so the agent is bound to a specific student
+     * account (owner = CloudStack account/학번). Once registered, the agent uses the issued
+     * agent token (at-) for heartbeat/report — the SOLID session is only needed at registration.
      * Commands delivered via heartbeat are scoped to services owned by that student on the
      * declared instanceId — an agent cannot observe or act on another student's services.
      *
-     * TODO (security): verify instanceId ownership via CloudStack API before trusting this agent.
-     *                  Until then, a student could declare any instanceId and receive commands for
-     *                  their own services on that (potentially false) VM.
+     * TODO (security, Phase 1B): verify instanceId ownership via CloudStack API at registration.
+     *                  Cross-user leakage is already prevented by (instanceId, ownerId) scoping;
+     *                  this would additionally stop an agent binding to a VM the student does not own.
      */
     @PostMapping("/register")
     public ResponseEntity<AgentRegisterResponse> register(
             @RequestHeader(value = "Authorization", required = false) String auth,
             @RequestBody AgentRegisterRequest req) {
-        User user = authenticate(auth);
-        if (user == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        SolidIdentity identity = authenticate(auth);
+        if (identity == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         if (req.instanceId() == null || req.instanceId().isBlank())
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "instanceId is required");
 
-        VmAgent agent = agentRegistry.register(req.instanceId(), user.getEmail());
+        VmAgent agent = agentRegistry.register(req.instanceId(), identity.account());
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(new AgentRegisterResponse(
                         agent.getAgentId(),
@@ -119,8 +121,8 @@ public class VmAgentController {
         return ResponseEntity.ok().build();
     }
 
-    private User authenticate(String auth) {
+    private SolidIdentity authenticate(String auth) {
         if (auth == null || !auth.startsWith("Bearer ")) return null;
-        return userService.findByApiKey(auth.substring(7));
+        return authService.resolve(auth.substring(7)).orElse(null);
     }
 }

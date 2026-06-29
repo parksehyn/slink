@@ -2,7 +2,7 @@
 
 > 상태: 제안 설계  
 > 작성일: 2026-06-07  
-> 관련 문서: [roadmap.md](roadmap.md), [design-a.md](design-a.md), [progress.md](progress.md)
+> 관련 문서: [roadmap.md](roadmap.md), [design-a.md](archive/design-a.md), [progress.md](progress.md)
 
 ## 1. 배경
 

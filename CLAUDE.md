@@ -68,14 +68,14 @@ docs/             설계·로드맵·진행 문서
 | 경로 | 용도 |
 |------|------|
 | `POST/GET/DELETE /api/session/*` | Colab 세션 (기존) |
-| `POST /api/auth/login`, `GET /api/auth/me`, `POST /api/auth/logout` | SOLID(CloudStack) 세션 인증 — DNS·VM (토큰 `slk-…`) |
-| `POST /api/users/register`, `GET /api/users/me` | slink 자체 키 발급 — Colab CLI·VM Agent 전용 (`sk-dku-…`) |
-| `POST/GET/PATCH/DELETE /api/services/*` | Service Registry (인바운드) + 접근 정책 |
-| `POST/DELETE /api/services/{id}/publish` | 외부 공개 제어 |
+| `POST /api/auth/login`, `GET /api/auth/me`, `POST /api/auth/logout` | SOLID(CloudStack) 세션 인증 — DNS·VM·서비스·터널링 (토큰 `slk-…`) |
+| `POST /api/users/register`, `GET /api/users/me` | slink 자체 키 발급 — Colab 세션(`/api/session`) 전용 (`sk-dku-…`, 단계적 폐지 예정) |
+| `POST/GET/PATCH/DELETE /api/services/*` | Service Registry (인바운드, vmId 기반·소유권 검증). SOLID 인증 |
+| `POST/DELETE /api/services/{id}/publish` | 외부 공개 제어. SOLID 인증 |
 | `GET/POST /api/dns/records`, `GET/PATCH/DELETE /api/dns/records/{id}` | 내부 DNS 레코드(A=vmId 기반·소유권/사설IP 검증, CNAME). SOLID 인증·표준 에러 |
-| `GET/POST /api/connections`, `DELETE /api/connections/{id}` | 아웃바운드 외부 연결 |
+| `GET/POST /api/connections`, `DELETE /api/connections/{id}` | 아웃바운드 외부 연결. SOLID 인증 |
 | `GET /api/vms` | 내 SOLID VM 목록 (CloudStack, SOLID 인증, 모의 가능) |
-| `POST /api/agents/register`, `/{id}/heartbeat`, `/{id}/report` | VM Agent |
+| `POST /api/agents/register`(SOLID 인증) → `at-` 발급, `/{id}/heartbeat`·`/{id}/report`(에이전트 토큰 `at-`) | VM Agent |
 
 ## 관련 문서
 
@@ -90,4 +90,4 @@ docs/             설계·로드맵·진행 문서
 - [`docs/demo-runbook.md`](docs/demo-runbook.md) — 데모 실행 순서(재배포 후 재셋업 포함) + 트러블슈팅
 - [`docs/internal-dns-requirements.md`](docs/internal-dns-requirements.md) — 내부 DNS 실연동에 필요한 권한·정보·정책
 - [`docs/relay-on-vm.md`](docs/relay-on-vm.md) — Relay를 SOLID VM에 올리는 배포 설계 (Named Tunnel, 별도 트랙)
-- [`docs/design-a.md`](docs/design-a.md) — Colab 연결 설계 기록
+- [`docs/archive/design-a.md`](docs/archive/design-a.md) — (아카이브) Colab 연결 A안 설계 기록 — 구현 완료, 역사 참고용

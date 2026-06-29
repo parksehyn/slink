@@ -51,4 +51,8 @@
 ## 상태
 
 - ✅ 전역 유일: 구현·테스트 완료(`DnsRecordApiTest.globalUniqueName_blocksOtherUser`).
+- ✅ 전역 유일 보완(선착순 부작용 방지) — 모두 `application.properties`로 조정 가능, `DnsRecordPolicyTest`로 검증:
+  - 예약어(`ns`,`www` 등) 차단 → `RESERVED_NAME`(400). 목록 `dns.reserved-names`.
+  - 학생당 레코드 개수 상한(기본 20) → `RECORD_LIMIT_EXCEEDED`(429). `dns.max-records-per-owner`.
+  - 방치 레코드 자동 회수(마지막 갱신 후 N일, 1시간 주기). `dns.record.expire-days`(기본 0=비활성).
 - ⬜ 학번 네임스페이스: 미구현(이 문서로 미팅 후 결정 시 적용).

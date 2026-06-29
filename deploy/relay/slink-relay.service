@@ -1,0 +1,34 @@
+[Unit]
+# slink Relay/Registry 백엔드(터널링·서비스 API). DNS 서버와 같은 jar이며 환경변수로 역할이 갈린다.
+#
+# 배포 대상: SOLID-R (relay 전용 VM, 사설 IP 10.0.10.89, 포트 8081 → VPN/사설망에서 10.0.10.89:8081).
+# DNS는 별도 VM(SOLID-D)에서 deploy/dns/slink-dns.service로 돌린다 → 여기서는 DNS_* 를 설정하지 않는다.
+# (한 VM에서 DNS까지 겸할 경우에만 아래 DNS_* 주석을 함께 설정.)
+Description=slink Relay backend (tunneling/service registry, file-persisted)
+After=network.target
+
+[Service]
+# 계정/경로는 DNS VM(slink-dns.service)과 동일 가정. SOLID-R이 다르면 수정.
+User=ubuntu
+Environment=PORT=8081
+Environment=CLOUDSTACK_API_URL=https://dku.kloud.zone/client/api
+# 파일 영속(미설정 시 인메모리=재시작 시 유실). VM 디스크에 두면 재부팅에도 보존된다.
+Environment=SERVICE_STORE_FILE=/var/lib/slink/services.json
+Environment=CONNECTION_STORE_FILE=/var/lib/slink/connections.json
+Environment=AGENT_STORE_FILE=/var/lib/slink/agents.json
+# (선택) 학생당 서비스 제한 — 미설정 시 기본값(10 / 동시공개 3).
+# Environment=SERVICE_MAX_PER_OWNER=10
+# Environment=SERVICE_MAX_PUBLIC_PER_OWNER=3
+# (선택) 같은 VM에서 DNS까지 겸할 때만 — DNS 전용 VM이 따로 있으면 설정하지 말 것.
+# Environment=DNS_STORE_FILE=/var/lib/slink/dns-records.json
+# Environment=DNS_ZONE_FILE=/etc/coredns/db.solid.internal
+# Environment=DNS_ZONE_NAME=solid.internal
+# Environment=DNS_ZONE_NS_IP=10.0.11.23
+# 포털 정적 파일을 jar 밖에서 서빙 → 화면만 고칠 땐 재빌드 없이 git pull + 새로고침.
+Environment=PORTAL_STATIC_DIR=/home/ubuntu/slink/src/main/resources/static/portal
+ExecStart=/usr/bin/java -jar /opt/slink/slink.jar
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

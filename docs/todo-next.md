@@ -15,8 +15,8 @@
 ## 🔧 우리가 할 수 있는 것 (코드/배포)
 
 - [ ] **PR 병합 결정**: `feat/dns-solid-auth` → main. (병합 시 Railway 자동 재배포 → 공개 포털이 SOLID 로그인으로 바뀌고 터널링 탭 영향 — 인지하고 결정)
-- [ ] **HTTPS/리버스 프록시**(nginx/caddy) — 현재 평문 http (명세서 §11.4)
-- [ ] 전역 유일 정책 보완: **예약어 차단**(ns, www 등) + **학생당 레코드 개수·TTL 상한** + 방치 레코드 회수(만료)
+- [~] **HTTPS/리버스 프록시**(nginx/caddy) — 현재 평문 http. **설계 문서화 완료**(dns-api-spec.md "HTTPS — 계획"), 배포 파일은 운영팀 내부 인증서 정책 확정 후.
+- [x] 전역 유일 정책 보완: **예약어 차단**(ns, www) + **학생당 레코드 개수 상한**(기본 20) + **방치 레코드 회수**(expire-days) 구현·테스트 완료(`DnsRecordPolicyTest`). TTL 상한은 기존 `clampTtl`(30~86400)로 이미 동작. 수치는 `application.properties`로 조정.
 - [ ] (미팅 결정 시) **학번 네임스페이스** 또는 익명 토큰 적용 — `dns-naming-policy.md`
 - [ ] **터널링 트랙 시작**(DNS 끝났으니) — 이때 `sk-dku-` 전면 제거 나머지(Colab CLI·VM Agent·SessionController)도 함께
 

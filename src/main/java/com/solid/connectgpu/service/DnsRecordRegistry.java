@@ -15,17 +15,22 @@ import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.time.Duration;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
  * 사용자별 내부 DNS 레코드(A/CNAME) 저장소. 소유자(=CloudStack 학번)로 격리한다.
@@ -54,13 +59,28 @@ public class DnsRecordRegistry {
     private final CloudStackProvider cloudStack;
     private final ObjectMapper mapper;
     private final String storeFile;
+    /** 시스템 예약 이름(선점 차단). 존 운영 충돌(ns 등)과 흔한 인프라 이름을 막는다. */
+    private final Set<String> reservedNames;
+    /** 소유자(학번) 1인당 레코드 개수 상한. 0 이하면 무제한. 흔한 이름 싹쓸이·저장 비대화 방지. */
+    private final int maxRecordsPerOwner;
+    /** 방치 레코드 회수 기준(일). 0 이하면 비활성. 마지막 갱신 후 N일 지난 레코드를 자동 삭제. */
+    private final int expireDays;
 
     public DnsRecordRegistry(DnsProvider dns, CloudStackProvider cloudStack, ObjectMapper mapper,
-                             @Value("${dns.store.file:}") String storeFile) {
+                             @Value("${dns.store.file:}") String storeFile,
+                             @Value("${dns.reserved-names:ns,ns1,ns2,www,mail,smtp,dns,coredns,localhost,gateway,admin,root}") String reservedNames,
+                             @Value("${dns.max-records-per-owner:20}") int maxRecordsPerOwner,
+                             @Value("${dns.record.expire-days:0}") int expireDays) {
         this.dns = dns;
         this.cloudStack = cloudStack;
         this.mapper = mapper;
         this.storeFile = storeFile == null ? "" : storeFile.trim();
+        this.reservedNames = Arrays.stream((reservedNames == null ? "" : reservedNames).split(","))
+                .map(s -> s.trim().toLowerCase())
+                .filter(s -> !s.isEmpty())
+                .collect(Collectors.toUnmodifiableSet());
+        this.maxRecordsPerOwner = maxRecordsPerOwner;
+        this.expireDays = expireDays;
     }
 
     @PostConstruct
@@ -101,6 +121,10 @@ public class DnsRecordRegistry {
             throw new DnsApiException("INVALID_REQUEST", "레코드 타입(A 또는 CNAME)이 필요합니다.", 400);
         String name = normalize(req.name());
         validateName(name);
+
+        if (maxRecordsPerOwner > 0 && findByOwner(ownerId).size() >= maxRecordsPerOwner)
+            throw new DnsApiException("RECORD_LIMIT_EXCEEDED",
+                    "DNS 레코드 개수 상한(" + maxRecordsPerOwner + "개)을 초과했습니다.", 429);
 
         String vmId = null, vmName = null, value;
         if (req.type() == DnsRecordType.A) {
@@ -177,6 +201,36 @@ public class DnsRecordRegistry {
         return true;
     }
 
+    // ── Scheduled reclamation ─────────────────────────────────────────────────────
+
+    /**
+     * 방치 레코드 회수 — 마지막 갱신({@code updatedAt}) 후 {@code dns.record.expire-days}일이
+     * 지난 레코드를 자동 삭제한다. 전역 유일(선착순) 정책에서 졸업·방치된 이름이 풀을 영구
+     * 점유하는 것을 막는다. {@code expire-days <= 0}이면 비활성(기본).
+     */
+    @Scheduled(fixedDelay = 3_600_000) // 1시간마다
+    public void reclaimExpired() {
+        if (expireDays <= 0) return;
+        reclaimOlderThan(Instant.now().minus(Duration.ofDays(expireDays)));
+    }
+
+    /** {@code updatedAt < cutoff}인 레코드를 삭제하고 회수 건수를 반환한다(스케줄러/테스트 공용). */
+    public int reclaimOlderThan(Instant cutoff) {
+        List<DnsRecord> stale = records.values().stream()
+                .filter(r -> r.getUpdatedAt().isBefore(cutoff))
+                .toList();
+        for (DnsRecord r : stale) {
+            records.remove(r.getId());
+            log.info("[DNS] reclaimed stale record {} (owner={}, lastUpdated={})",
+                    r.getName(), r.getOwnerId(), r.getUpdatedAt());
+            try { dns.deleteRecord(r.getName()); } catch (Exception e) {
+                log.warn("[DNS] reclaim deleteRecord sync failed for {}: {}", r.getName(), e.getMessage());
+            }
+        }
+        if (!stale.isEmpty()) persist();
+        return stale.size();
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────────
 
     private void syncToDns(DnsRecord record, Runnable op) {
@@ -237,6 +291,10 @@ public class DnsRecordRegistry {
             throw new DnsApiException("INVALID_DNS_NAME", "레코드 이름이 필요합니다.", 400);
         if (!HOSTNAME.matcher(name).matches())
             throw new DnsApiException("INVALID_DNS_NAME", "DNS 이름은 소문자/숫자/하이픈만 사용할 수 있습니다: " + name, 400);
+        // 첫 라벨이 예약어면 차단 (web.solid.internal 형태에서 web 검사)
+        String firstLabel = name.contains(".") ? name.substring(0, name.indexOf('.')) : name;
+        if (reservedNames.contains(firstLabel))
+            throw new DnsApiException("RESERVED_NAME", "예약된 DNS 이름은 사용할 수 없습니다: " + firstLabel, 400);
     }
 
     private void validateValue(DnsRecordType type, String value) {

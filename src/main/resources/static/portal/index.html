@@ -204,9 +204,9 @@
 
   <!-- ░░░ 터널링 탭 ░░░ -->
   <div id="tab-tunnel" style="display:none">
-    <div class="solid-note" style="background:#fef3c7;border-color:#fcd34d;color:#92400e">
-      터널링은 <strong>후속 단계</strong>입니다. 현재 로그인은 SOLID 인증으로 전환되어, 이 탭의 일부 기능(서비스/연결 등록)은
-      SOLID 인증 이관 전까지 동작하지 않을 수 있습니다. DNS 기능을 먼저 사용하세요.
+    <div class="solid-note">
+      서비스·외부 연결 등록은 <strong>SOLID 인증</strong>으로 동작합니다(소유자=학번). 인바운드 서비스는 <strong>VM을 선택</strong>하면
+      서버가 SOLID(CloudStack)에서 사설 IP·소유권을 채웁니다. 외부 접근 차단 시행(Cloudflare Access)은 <span class="planned">시행 예정</span>입니다.
     </div>
     <div class="solid-seg">
       <button id="segbtn-outbound" onclick="showMode('outbound')">아웃바운드 (외부 → 접근)</button>
@@ -293,17 +293,17 @@
             <p class="hint">소문자·숫자·하이픈만 (예: team-demo, api-v1)</p>
           </div>
           <div class="form-group">
-            <label for="svc-vm">VM에서 선택 <span style="color:#94a3b8">(인스턴스·사설 IP 자동 입력)</span></label>
-            <select id="svc-vm" onchange="onSvcVmChange()"><option value="">— 직접 입력 —</option></select>
+            <label for="svc-vm">VM 선택 <span style="color:#94a3b8">(인스턴스·사설 IP 자동 입력)</span></label>
+            <select id="svc-vm" onchange="onSvcVmChange()"><option value="">— 선택 —</option></select>
           </div>
           <div class="form-row">
             <div class="form-group">
-              <label for="svc-instance">인스턴스 ID</label>
-              <input id="svc-instance" type="text" placeholder="solid-32211690" autocomplete="off">
+              <label for="svc-instance">인스턴스 ID <span style="color:#94a3b8">(자동)</span></label>
+              <input id="svc-instance" type="text" placeholder="VM 선택 시 자동" autocomplete="off" readonly>
             </div>
             <div class="form-group">
-              <label for="svc-ip">VM 사설 IP</label>
-              <input id="svc-ip" type="text" placeholder="10.0.10.89" autocomplete="off">
+              <label for="svc-ip">VM 사설 IP <span style="color:#94a3b8">(서버가 채움)</span></label>
+              <input id="svc-ip" type="text" placeholder="VM 선택 시 자동" autocomplete="off" readonly>
             </div>
           </div>
           <div class="form-row">
@@ -611,8 +611,7 @@ function onAccessPolicyChange() {
 
 async function submitService() {
     const name = document.getElementById('svc-name').value.trim();
-    const instanceId = document.getElementById('svc-instance').value.trim();
-    const privateIp = document.getElementById('svc-ip').value.trim();
+    const instanceId = document.getElementById('svc-instance').value.trim();  // VM 선택으로 채워짐
     const localPort = parseInt(document.getElementById('svc-port').value);
     const protocol = document.getElementById('svc-protocol').value;
     const scope = document.getElementById('svc-scope').value;
@@ -621,9 +620,11 @@ async function submitService() {
         .split(/[,\n]/).map(s => s.trim()).filter(Boolean);
     const err = document.getElementById('svc-error');
     err.style.display = 'none';
+    if (!instanceId) { err.textContent = 'VM을 선택하세요. 사설 IP는 서버가 채웁니다.'; err.style.display = 'block'; return; }
+    // 사설 IP는 서버가 instanceId로 CloudStack에서 채운다(수동 전송 X).
     const res = await apiFetch('/api/services', {
         method: 'POST',
-        body: JSON.stringify({ name, instanceId, privateIp, localPort, protocol, scope, accessPolicy, allowedEmails })
+        body: JSON.stringify({ name, instanceId, localPort, protocol, scope, accessPolicy, allowedEmails })
     });
     if (res.ok) { toggleSvcForm(false); loadServices(); }
     else { err.textContent = (await res.text()) || '서비스 생성 실패'; err.style.display = 'block'; }

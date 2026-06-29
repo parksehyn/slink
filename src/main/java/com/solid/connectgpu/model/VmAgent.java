@@ -21,6 +21,17 @@ public class VmAgent {
         this.lastHeartbeatAt = Instant.now();
     }
 
+    /** 영속 스냅샷으로부터 복원 (agentId·토큰·시각 보존). */
+    public VmAgent(String agentId, String instanceId, String ownerId, String agentToken,
+                   Instant lastHeartbeatAt, Instant registeredAt) {
+        this.agentId = agentId;
+        this.instanceId = instanceId;
+        this.ownerId = ownerId;
+        this.agentToken = agentToken;
+        this.lastHeartbeatAt = lastHeartbeatAt;
+        this.registeredAt = registeredAt;
+    }
+
     /** true if heartbeat arrived within the last 60 seconds */
     public boolean isAlive() {
         return lastHeartbeatAt != null &&
