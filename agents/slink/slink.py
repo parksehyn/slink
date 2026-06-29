@@ -35,6 +35,15 @@ def save_config(cfg: dict):
         json.dump(cfg, f, ensure_ascii=False, indent=2)
 
 
+def load_config_optional() -> dict:
+    """rc 파일이 없어도 빈 설정으로 동작. SOLID 인증 기반 명령(agent start 등)은
+    `slink init`(레거시 Colab sk-dku- 등록)이 필요 없으므로 하드 종료하지 않는다."""
+    if not os.path.exists(SLINKRC):
+        return {}
+    with open(SLINKRC, encoding="utf-8") as f:
+        return json.load(f)
+
+
 # ── daemon helpers ─────────────────────────────────────────────────────────────
 
 def _read_pid() -> int | None:
@@ -470,7 +479,7 @@ def _agent_report(relay_url: str, agent_id: str, agent_token: str,
 
 
 def cmd_agent_start(args):
-    cfg = load_config()
+    cfg = load_config_optional()   # agent는 SOLID 인증 → slink init 불필요
     relay_url = (args.relay or cfg.get("relay_url", RELAY_DEFAULT)).rstrip("/")
     instance_id = args.instance_id
 
