@@ -1,8 +1,9 @@
 # 다음 작업 (TODO) — DNS 서비스 이후
 
-> 최종 업데이트: 2026-06-22
+> 최종 업데이트: 2026-06-30
 > 관련: [dns-api-spec.md](dns-api-spec.md), [dns-naming-policy.md](dns-naming-policy.md),
-> [internal-dns-requirements.md](internal-dns-requirements.md), [progress.md](progress.md)
+> [internal-dns-requirements.md](internal-dns-requirements.md), [external-resource-connection.md](external-resource-connection.md),
+> [progress.md](progress.md)
 
 ## ✅ 현재 상태 (동작 확인됨)
 
@@ -18,7 +19,10 @@
 - [~] **HTTPS/리버스 프록시**(nginx/caddy) — 현재 평문 http. **설계 문서화 완료**(dns-api-spec.md "HTTPS — 계획"), 배포 파일은 운영팀 내부 인증서 정책 확정 후.
 - [x] 전역 유일 정책 보완: **예약어 차단**(ns, www) + **학생당 레코드 개수 상한**(기본 20) + **방치 레코드 회수**(expire-days) 구현·테스트 완료(`DnsRecordPolicyTest`). TTL 상한은 기존 `clampTtl`(30~86400)로 이미 동작. 수치는 `application.properties`로 조정.
 - [ ] (미팅 결정 시) **학번 네임스페이스** 또는 익명 토큰 적용 — `dns-naming-policy.md`
-- [ ] **터널링 트랙 시작**(DNS 끝났으니) — 이때 `sk-dku-` 전면 제거 나머지(Colab CLI·VM Agent·SessionController)도 함께
+- [ ] **외부 자원 연결 1단계** — 포털 용어를 `외부 자원 연결` / `SOLID 서비스 공개`로 변경
+- [ ] **Colab 포털 통합** — `/api/session`의 `sk-dku-` 인증을 SOLID 계정과 연결하고 Colab 등록용 단기 토큰 도입
+- [ ] **외부 자원 일반화** — 기존 `slink connect` 호환을 유지하며 Colab GPU·Jupyter·HTTP/API 공통 모델/Agent 설계
+- [ ] SSH/DB는 HTTP Quick Tunnel과 분리해 TCP·인증 정책 확정 후 진행
 
 ## 🏛 운영팀 의존 — 미팅 안건 ★ 실배포 핵심 관문
 

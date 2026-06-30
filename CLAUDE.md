@@ -89,5 +89,6 @@ docs/             설계·로드맵·진행 문서
 - [`docs/demo-theory.md`](docs/demo-theory.md) — 외부 공개(역방향 터널링) 데모 동작 이론
 - [`docs/demo-runbook.md`](docs/demo-runbook.md) — 데모 실행 순서(재배포 후 재셋업 포함) + 트러블슈팅
 - [`docs/internal-dns-requirements.md`](docs/internal-dns-requirements.md) — 내부 DNS 실연동에 필요한 권한·정보·정책
+- [`docs/external-resource-connection.md`](docs/external-resource-connection.md) — 아웃바운드를 외부 자원 연결로 재정의한 방향, Colab 통합 현황·후속 계획
 - [`docs/relay-on-vm.md`](docs/relay-on-vm.md) — Relay를 SOLID VM에 올리는 배포 설계 (Named Tunnel, 별도 트랙)
 - [`docs/archive/design-a.md`](docs/archive/design-a.md) — (아카이브) Colab 연결 A안 설계 기록 — 구현 완료, 역사 참고용
