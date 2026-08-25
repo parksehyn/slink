@@ -560,6 +560,56 @@ DNS(`dns.store.file`)에 이어 **터널링/서비스도 파일 영속**으로. 
 > 후속(이번 범위 아님): Colab `sk-dku-` 제거 = **포털 발급 Colab 토큰**(SOLID 로그인 후 포털에서
 > Colab 전용 토큰 발급→Colab Secret). AccessPolicy 실제 시행·Named Tunnel(Cloudflare 계정·도메인 후).
 
+### 통합 AgentRegistry — 인바운드/아웃바운드 수렴 (2026-07-03, M1)
+
+미팅 피드백("Relay·Agent 관점에서 둘은 같다 — 단일 솔루션") 반영 1단계.
+설계: [unified-agent-design.md](unified-agent-design.md).
+
+- [x] **통합 도메인 모델** — `Agent`(+`AgentLocation`: SOLID_VM/COLAB/EXTERNAL, `AgentService`).
+  인바운드/아웃바운드 구분이 스키마에서 사라지고 위치 속성이 됨. 외부 Agent는 서비스 1:1
+  (`services[0]`), SOLID_VM 서비스는 M2까지 ServiceRegistry 유지.
+- [x] **단일 `AgentRegistry`** — 구 `VmAgentRegistry`+`ExternalResourceRegistry` 삭제,
+  하나의 맵으로 수렴. 검증은 위치 확인 포함(`validateVm`/`validateExternal` — 교차 토큰 차단).
+- [x] **완전 호환** — API 경로·응답, 토큰 접두사(`at-`/`rat-`), store 파일 2개
+  (`agent.store.file`/`resource.store.file`) 포맷 그대로. 배포된 에이전트·데이터 마이그레이션 불필요.
+- [x] 전체 테스트 그린 (기존 15개 테스트 클래스, 코드 수정은 TunnelingPersistenceTest의
+  클래스명 교체뿐).
+
+> 후속: M2(포털 통합 AgentList API + 저장 포맷 단일화), M3(단일 agent CLI),
+> M4(자체 터널: WebSocket 멀티플렉싱).
+
+### 실시간 지표 API `/api/metrics` (2026-07-03, §8.1 1단계)
+
+- [x] **`GET /api/metrics`** (SOLID 인증) — Relay 업타임, Agent 총/온라인 수 + **위치별 분포**
+  (SOLID_VM/COLAB/EXTERNAL — 통합 모델이라 집계가 한 곳에서 나옴), 서비스 총/공개 수,
+  DNS 레코드·아웃바운드 연결·Colab 세션 수, JVM 메모리/CPU 코어.
+- [x] 테스트 `MetricsApiTest` 3건(인증 필수, 집계 형태, 외부 Agent 등록 시 COLAB 카운트 증가).
+- [ ] 후속: 포털 지표 탭 UI(디자인 시스템 이후), 처리율·open 전파 지연 계측(§8.2 벤치마크), Actuator 연동.
+
+### 자체 구현 DNS 응답기 (2026-07-08, §9 — 외부/오픈소스 DNS 미사용)
+
+교수님 방침(직접 구현) 반영. dnsmasq·CoreDNS 없이 RFC 1035를 직접 구현한
+`solid.internal` 존 권한(authoritative) 서버.
+
+- [x] **`DnsCodec`** — RFC 1035 최소 코덱 직접 구현(질문 파싱, 응답 인코딩,
+  answer name은 0xC00C 포인터 압축). 외부 라이브러리 없음.
+- [x] **`DnsUdpServer`** — UDP 리스너. `DnsRecordRegistry`를 zone 데이터로 **직접**
+  서빙(CoreDNS 동기화 불필요 — 자족형): A 응답, CNAME+존 내 A 체이닝, NXDOMAIN,
+  타입 불일치 NODATA. 존 밖 질의는 `dns.server.upstream` 스텁 포워딩(미설정 시 REFUSED)
+  — VM이 이 서버를 유일한 리졸버로 지정해도 일반 인터넷 질의 동작.
+- [x] **기본 꺼짐** — `dns.server.enabled=false`(Railway 등 UDP 불가 환경 안전).
+  DNS Server VM에서 `enabled=true, port=53`으로 활성.
+- [x] **와일드카드** — 정확 일치 없으면 왼쪽 라벨을 `*`로 재조회(`x.web`→`*.web`).
+  API로 `*.x` 생성 허용(자기 서브트리만), 루트 `*`는 차단(존 전체 선점 방지).
+  자체 터널 서브도메인 결합 준비 완료.
+- [x] **워커 풀** — 수신 루프는 단일 스레드, 처리·응답은 `dns.server.workers`(기본 4)
+  풀에서. 상위 포워딩(2초 타임아웃)이 존 내 응답을 막지 않음.
+- [x] **`deploy/dns/` 갱신** — 자체 응답기 방식을 권장 절차로 문서화
+  (CoreDNS·zone 파일·dns-agent.py 불필요). CoreDNS 절차는 대안으로 보존.
+- [x] 테스트 `DnsUdpServerTest` 7건 — 실제 UDP 소켓으로 질의: A 해석, NXDOMAIN,
+  CNAME 체이닝, 존 밖 REFUSED, NODATA, 와일드카드 매칭, 루트 `*` 생성 거부.
+- [ ] 후속: DNS Server VM 실배포 검증(53 바인드·스플릿 DNS), TCP 폴백(512B 초과 응답 시).
+
 ## 다음 단계
 
 - [ ] VM 간 임의 포트 접근 가능 여부 확인

@@ -5,9 +5,9 @@ import com.solid.connectgpu.model.OutboundConnection;
 import com.solid.connectgpu.model.ServiceEntry;
 import com.solid.connectgpu.port.CloudStackProvider;
 import com.solid.connectgpu.port.DnsProvider;
+import com.solid.connectgpu.service.AgentRegistry;
 import com.solid.connectgpu.service.OutboundConnectionRegistry;
 import com.solid.connectgpu.service.ServiceRegistry;
-import com.solid.connectgpu.service.VmAgentRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -40,7 +40,7 @@ class TunnelingPersistenceTest {
     @Autowired ObjectMapper mapper;
     @Autowired DnsProvider dns;
     @Autowired CloudStackProvider cloudStack;
-    @Autowired VmAgentRegistry agentRegistryBean;
+    @Autowired AgentRegistry agentRegistryBean;
 
     @Value("${service.store.file}") String serviceStore;
     @Value("${connection.store.file}") String connStore;
@@ -123,12 +123,12 @@ class TunnelingPersistenceTest {
         String agentId = JsonPath.read(reg, "$.agentId");
         String agentToken = JsonPath.read(reg, "$.agentToken");
 
-        VmAgentRegistry fresh = new VmAgentRegistry(mapper, agentStore);
+        AgentRegistry fresh = new AgentRegistry(mapper, agentStore, "", 0);
         fresh.load();
 
         // at- 토큰이 보존되어 재등록 없이 검증(validate)이 통과해야 한다
         assertThat(fresh.findById(agentId)).isPresent();
-        assertThat(fresh.validate(agentId, agentToken)).isPresent();
-        assertThat(fresh.validate(agentId, "at-wrong")).isEmpty();
+        assertThat(fresh.validateVm(agentId, agentToken)).isPresent();
+        assertThat(fresh.validateVm(agentId, "at-wrong")).isEmpty();
     }
 }

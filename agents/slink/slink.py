@@ -298,8 +298,72 @@ def _get_session(args) -> tuple[dict, str]:
     return resp.json(), relay_url
 
 
+def _solid_login(relay_url: str, username: str, password: str, domain: str) -> str:
+    """SOLID(CloudStack) 로그인 → slk- 토큰. 외부 자원 연결(--resource)에 사용."""
+    cfg = load_config_optional()
+    username = username or cfg.get("student_id") or ""
+    if not username:
+        username = input("  SOLID 학번/계정: ").strip()
+    if domain is None:
+        domain = cfg.get("domain", "")
+    if not password:
+        password = os.getenv("SLINK_SOLID_PASSWORD")
+    if not password:
+        password = getpass.getpass(f"  SOLID 비밀번호 ({username}): ")
+    try:
+        resp = requests.post(
+            f"{relay_url}/api/auth/login",
+            json={"username": username, "password": password, "domain": domain or ""},
+            timeout=10,
+        )
+    except requests.ConnectionError:
+        print(f"[slink] 오류: Relay 서버에 연결할 수 없습니다 ({relay_url})")
+        sys.exit(1)
+    if resp.status_code == 401:
+        print("[slink] 오류: SOLID 로그인 실패. 학번/비밀번호/도메인을 확인하세요.")
+        sys.exit(1)
+    resp.raise_for_status()
+    return resp.json()["token"]
+
+
+def _get_resource(args) -> tuple[dict, str]:
+    """외부 자원(--resource)을 SOLID 인증으로 조회해 connect 흐름이 기대하는 세션 형태로 매핑."""
+    relay_url = args.relay.rstrip("/")
+    token = _solid_login(relay_url, args.username, args.password, args.domain)
+    print(f"[slink] 외부 자원 {args.resource} 조회 중...")
+    try:
+        resp = requests.get(
+            f"{relay_url}/api/resources/{args.resource}",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10,
+        )
+    except requests.ConnectionError:
+        print(f"[slink] 오류: Relay 서버에 연결할 수 없습니다 ({relay_url})")
+        sys.exit(1)
+    if resp.status_code == 401:
+        print("[slink] 오류: SOLID 인증 실패.")
+        sys.exit(1)
+    if resp.status_code == 404:
+        print("[slink] 오류: 자원을 찾을 수 없습니다(소유자만 접근 가능).")
+        sys.exit(1)
+    resp.raise_for_status()
+    r = resp.json()
+    if not r.get("publicUrl"):
+        print(f"[slink] 오류: 자원이 아직 준비되지 않았습니다(상태={r.get('status')}). 외부 에이전트가 실행 중인지 확인하세요.")
+        sys.exit(1)
+    session = {
+        "ngrokHost": r["publicUrl"],
+        "jupyterToken": r.get("serviceToken") or "",
+        "expiresAt": r.get("expiresAt") or "",
+    }
+    return session, relay_url
+
+
 def cmd_connect(args):
-    session, _ = _get_session(args)
+    if getattr(args, "resource", None):
+        session, _ = _get_resource(args)
+    else:
+        session, _ = _get_session(args)
     jupyter_base_url = session["ngrokHost"].rstrip("/")
     token = session["jupyterToken"]
 
@@ -656,6 +720,16 @@ def main():
         "--relay", default=os.getenv(RELAY_ENV, RELAY_DEFAULT), metavar="URL",
         help=f"Relay 서버 주소 (환경변수 {RELAY_ENV} 또는 기본값: {RELAY_DEFAULT})"
     )
+    c.add_argument(
+        "--resource", default=None, metavar="ID",
+        help="외부 자원 ID로 연결 (포털 '외부 자원 연결'). SOLID 로그인을 사용합니다."
+    )
+    c.add_argument("--username", default=None, metavar="ID",
+                   help="SOLID 학번/계정 (--resource 사용 시; 생략 시 ~/.slinkrc 또는 프롬프트)")
+    c.add_argument("--password", default=None, metavar="PW",
+                   help="SOLID 비밀번호 (--resource 헤드리스용; 없으면 SLINK_SOLID_PASSWORD 또는 프롬프트)")
+    c.add_argument("--domain", default=None, metavar="DOMAIN",
+                   help="SOLID 도메인 (--resource 사용 시, 선택)")
 
     # disconnect
     sub.add_parser("disconnect", help="백그라운드 keepalive 세션 종료")

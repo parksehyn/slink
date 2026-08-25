@@ -58,6 +58,9 @@ public class OutboundConnectionRegistry {
         }
     }
 
+    /** 지표: 전체 연결 수. */
+    public long count() { return connections.size(); }
+
     public List<OutboundConnection> findByOwner(String ownerId) {
         return connections.values().stream()
                 .filter(c -> c.getOwnerId().equals(ownerId))

@@ -35,7 +35,7 @@ public class ServiceRegistry {
 
     private final ConcurrentHashMap<String, ServiceEntry> services = new ConcurrentHashMap<>();
     private final DnsProvider dns;
-    private final VmAgentRegistry agentRegistry;
+    private final AgentRegistry agentRegistry;
     private final CloudStackProvider cloudStack;
     private final ObjectMapper mapper;
     private final String storeFile;
@@ -47,7 +47,7 @@ public class ServiceRegistry {
     // TunnelProvider removed: tunnels are now managed by VM Agents, not by Relay.
     // TODO (issue #3): activate real TunnelProvider only after VM Agent or CloudStack
     //                  ownership verification is complete.
-    public ServiceRegistry(DnsProvider dns, VmAgentRegistry agentRegistry, CloudStackProvider cloudStack,
+    public ServiceRegistry(DnsProvider dns, AgentRegistry agentRegistry, CloudStackProvider cloudStack,
                            ObjectMapper mapper,
                            @Value("${service.store.file:}") String storeFile,
                            @Value("${service.max-per-owner:10}") int maxPerOwner,
@@ -120,6 +120,15 @@ public class ServiceRegistry {
 
     public Optional<ServiceEntry> findById(String id) {
         return Optional.ofNullable(services.get(id));
+    }
+
+    /** 지표: 전체 서비스 수. */
+    public long count() { return services.size(); }
+
+    /** 지표: 외부 공개(PUBLIC) 서비스 수. */
+    public long countPublic() {
+        return services.values().stream()
+                .filter(e -> e.getScope() == ServiceScope.PUBLIC).count();
     }
 
     public List<ServiceEntry> findByOwner(String ownerId) {

@@ -104,6 +104,9 @@ public class DnsRecordRegistry {
         }
     }
 
+    /** 지표: 전체 레코드 수. */
+    public long count() { return records.size(); }
+
     public List<DnsRecord> findByOwner(String ownerId) {
         return records.values().stream()
                 .filter(r -> r.getOwnerId().equals(ownerId))
@@ -113,6 +116,18 @@ public class DnsRecordRegistry {
 
     public Optional<DnsRecord> findById(String id) {
         return Optional.ofNullable(records.get(id));
+    }
+
+    /**
+     * DNS 응답기용: 존 기준 짧은 라벨로 조회 (루트는 {@code @}). 이름은 전역 유일이라
+     * 최대 1건이다. 자체 응답기는 이 레지스트리를 직접 zone 데이터로 사용한다
+     * (unified-agent-design.md §9 — CoreDNS 동기화 없이 자족).
+     */
+    public Optional<DnsRecord> findByName(String label) {
+        String want = label == null || label.isBlank() ? "@" : label.toLowerCase();
+        return records.values().stream()
+                .filter(r -> r.getName().equals(want))
+                .findFirst();
     }
 
     public DnsRecord create(SolidIdentity identity, CreateDnsRecordRequest req) {
@@ -289,10 +304,16 @@ public class DnsRecordRegistry {
         if (name.equals("@")) return; // 존 루트 허용
         if (name.isBlank())
             throw new DnsApiException("INVALID_DNS_NAME", "레코드 이름이 필요합니다.", 400);
-        if (!HOSTNAME.matcher(name).matches())
+        // 와일드카드는 자기 서브트리(*.x)만 허용. 루트 와일드카드(*)는 존 내 모든 미등록
+        // 이름을 한 사람이 선점하게 되므로 차단 (자체 응답기의 와일드카드 매칭 대상).
+        String host = name;
+        if (name.equals("*"))
+            throw new DnsApiException("RESERVED_NAME", "루트 와일드카드(*)는 사용할 수 없습니다.", 400);
+        if (name.startsWith("*.")) host = name.substring(2);
+        if (!HOSTNAME.matcher(host).matches())
             throw new DnsApiException("INVALID_DNS_NAME", "DNS 이름은 소문자/숫자/하이픈만 사용할 수 있습니다: " + name, 400);
-        // 첫 라벨이 예약어면 차단 (web.solid.internal 형태에서 web 검사)
-        String firstLabel = name.contains(".") ? name.substring(0, name.indexOf('.')) : name;
+        // 첫 라벨이 예약어면 차단 (web.solid.internal 형태에서 web 검사, *.web이면 web 검사)
+        String firstLabel = host.contains(".") ? host.substring(0, host.indexOf('.')) : host;
         if (reservedNames.contains(firstLabel))
             throw new DnsApiException("RESERVED_NAME", "예약된 DNS 이름은 사용할 수 없습니다: " + firstLabel, 400);
     }
