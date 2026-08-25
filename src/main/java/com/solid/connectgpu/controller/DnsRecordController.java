@@ -1,82 +1,109 @@
 package com.solid.connectgpu.controller;
 
+import com.solid.connectgpu.dto.ApiError;
 import com.solid.connectgpu.dto.CreateDnsRecordRequest;
 import com.solid.connectgpu.dto.DnsRecordResponse;
 import com.solid.connectgpu.dto.UpdateDnsRecordRequest;
 import com.solid.connectgpu.model.DnsRecord;
-import com.solid.connectgpu.model.User;
+import com.solid.connectgpu.model.SolidIdentity;
+import com.solid.connectgpu.service.AuthService;
+import com.solid.connectgpu.service.DnsApiException;
 import com.solid.connectgpu.service.DnsRecordRegistry;
-import com.solid.connectgpu.service.UserService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
+/**
+ * 내부 DNS 레코드(A/CNAME) API. SOLID 세션 토큰으로 인증하고(소유자=학번),
+ * A 레코드는 vmId로 생성하면 서버가 CloudStack에서 IP·소유권을 검증한다.
+ * 에러는 표준 {@link ApiError} 엔벨로프로 반환한다(명세서 §10).
+ */
 @RestController
 @RequestMapping("/api/dns/records")
 public class DnsRecordController {
 
     private final DnsRecordRegistry registry;
-    private final UserService userService;
+    private final AuthService authService;
 
-    public DnsRecordController(DnsRecordRegistry registry, UserService userService) {
+    public DnsRecordController(DnsRecordRegistry registry, AuthService authService) {
         this.registry = registry;
-        this.userService = userService;
+        this.authService = authService;
     }
 
     @GetMapping
-    public ResponseEntity<List<DnsRecordResponse>> list(
+    public ResponseEntity<?> list(
             @RequestHeader(value = "Authorization", required = false) String auth) {
-        User user = authenticate(auth);
-        if (user == null) return ResponseEntity.status(401).build();
+        SolidIdentity id = authenticate(auth);
+        if (id == null) return unauthorized();
         return ResponseEntity.ok(
-                registry.findByOwner(user.getEmail()).stream().map(this::toResponse).toList());
+                registry.findByOwner(id.account()).stream().map(this::toResponse).toList());
+    }
+
+    @GetMapping("/{id}")
+    public ResponseEntity<?> get(
+            @PathVariable("id") String recordId,
+            @RequestHeader(value = "Authorization", required = false) String auth) {
+        SolidIdentity id = authenticate(auth);
+        if (id == null) return unauthorized();
+        return registry.findById(recordId)
+                .filter(r -> r.getOwnerId().equals(id.account()))
+                .map(r -> ResponseEntity.ok((Object) toResponse(r)))
+                .orElse(ResponseEntity.status(404).body((Object) ApiError.of("NOT_FOUND", "레코드를 찾을 수 없습니다.")));
     }
 
     @PostMapping
     public ResponseEntity<?> create(
             @RequestHeader(value = "Authorization", required = false) String auth,
             @RequestBody CreateDnsRecordRequest req) {
-        User user = authenticate(auth);
-        if (user == null) return ResponseEntity.status(401).build();
+        SolidIdentity id = authenticate(auth);
+        if (id == null) return unauthorized();
         try {
-            DnsRecord record = registry.create(user.getEmail(), req);
+            DnsRecord record = registry.create(id, req);
             return ResponseEntity.status(201).body(toResponse(record));
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(e.getMessage());
+        } catch (DnsApiException e) {
+            return error(e);
         }
     }
 
     @PatchMapping("/{id}")
     public ResponseEntity<?> update(
-            @PathVariable String id,
+            @PathVariable("id") String recordId,
             @RequestHeader(value = "Authorization", required = false) String auth,
             @RequestBody UpdateDnsRecordRequest req) {
-        User user = authenticate(auth);
-        if (user == null) return ResponseEntity.status(401).build();
+        SolidIdentity id = authenticate(auth);
+        if (id == null) return unauthorized();
         try {
-            return registry.update(id, user.getEmail(), req)
-                    .map(r -> ResponseEntity.ok(toResponse(r)))
-                    .orElse(ResponseEntity.notFound().build());
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(e.getMessage());
+            return registry.update(recordId, id.account(), req)
+                    .map(r -> ResponseEntity.ok((Object) toResponse(r)))
+                    .orElse(ResponseEntity.status(404).body((Object) ApiError.of("NOT_FOUND", "레코드를 찾을 수 없습니다.")));
+        } catch (DnsApiException e) {
+            return error(e);
         }
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> delete(
-            @PathVariable String id,
+    public ResponseEntity<?> delete(
+            @PathVariable("id") String recordId,
             @RequestHeader(value = "Authorization", required = false) String auth) {
-        User user = authenticate(auth);
-        if (user == null) return ResponseEntity.status(401).build();
-        return registry.delete(id, user.getEmail())
+        SolidIdentity id = authenticate(auth);
+        if (id == null) return unauthorized();
+        return registry.delete(recordId, id.account())
                 ? ResponseEntity.noContent().build()
-                : ResponseEntity.notFound().build();
+                : ResponseEntity.status(404).body(ApiError.of("NOT_FOUND", "레코드를 찾을 수 없습니다."));
     }
 
-    private User authenticate(String auth) {
+    private SolidIdentity authenticate(String auth) {
         if (auth == null || !auth.startsWith("Bearer ")) return null;
-        return userService.findByApiKey(auth.substring(7));
+        return authService.resolve(auth.substring(7)).orElse(null);
+    }
+
+    private ResponseEntity<?> unauthorized() {
+        return ResponseEntity.status(401).body(ApiError.of("UNAUTHORIZED", "인증이 필요합니다."));
+    }
+
+    private ResponseEntity<?> error(DnsApiException e) {
+        return ResponseEntity.status(e.getHttpStatus()).body(ApiError.of(e.getCode(), e.getMessage()));
     }
 
     private DnsRecordResponse toResponse(DnsRecord r) {
@@ -85,8 +112,12 @@ public class DnsRecordController {
                 r.getOwnerId(),
                 r.getType().name(),
                 r.getName(),
+                r.getFqdn(),
                 r.getValue(),
                 r.getTtl(),
+                r.getVmId(),
+                r.getVmName(),
+                r.getStatus().name(),
                 r.getCreatedAt().toString(),
                 r.getUpdatedAt().toString()
         );

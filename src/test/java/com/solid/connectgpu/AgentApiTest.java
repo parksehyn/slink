@@ -16,6 +16,10 @@ import java.time.Instant;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+/**
+ * VM Agent API 테스트. 에이전트 등록은 SOLID 세션 토큰(slk-)으로 인증하며(소유자=학번),
+ * 이후 heartbeat/report는 발급된 에이전트 토큰(at-)을 쓴다. 서비스는 소유 vmId로 만든다.
+ */
 @SpringBootTest
 class AgentApiTest {
 
@@ -23,50 +27,52 @@ class AgentApiTest {
     @Autowired ServiceRegistry serviceRegistry;
 
     MockMvc mvc;
-    String email;
-    String apiKey;
+    String token;
+    String vmId;    // 소유 VM #1 (Mock: solid-{학번})
+    String vmId2;   // 소유 VM #2 (Mock: solid-{학번}-api)
 
     @BeforeEach
     void setup() throws Exception {
         mvc = MockMvcBuilders.webAppContextSetup(context).build();
         long ts = System.nanoTime();
-        email = "agent-test-" + ts + "@dankook.ac.kr";
-        String studentId = "G" + Math.abs(ts % 10_000_000L);
-        String regJson = mvc.perform(post("/api/users/register")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"studentId\":\"" + studentId + "\",\"email\":\"" + email + "\"}"))
+        String username = String.valueOf(10_000_000L + Math.abs(ts % 80_000_000L));
+        token = login(username);
+        String vmsJson = mvc.perform(get("/api/vms").header("Authorization", "Bearer " + token))
                 .andReturn().getResponse().getContentAsString();
-        apiKey = JsonPath.read(regJson, "$.apiKey");
+        vmId = JsonPath.read(vmsJson, "$[0].instanceId");
+        vmId2 = JsonPath.read(vmsJson, "$[1].instanceId");
+    }
+
+    private String login(String username) throws Exception {
+        String json = mvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"" + username + "\",\"password\":\"pw\"}"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        return JsonPath.read(json, "$.token");
     }
 
     // ── 헬퍼 ─────────────────────────────────────────────────────────────────
 
-    /** 이 테스트 사용자의 API Key로 agent를 등록한다. */
+    /** 이 테스트 사용자의 SOLID 토큰으로 agent를 등록한다. */
     private String registerAgent(String instanceId) throws Exception {
         return mvc.perform(post("/api/agents/register")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"instanceId\":\"" + instanceId + "\"}")
-                        .header("Authorization", "Bearer " + apiKey))
+                        .header("Authorization", "Bearer " + token))
                 .andReturn().getResponse().getContentAsString();
     }
 
-    /** 별도 사용자 계정을 만들고 그 사용자로 agent를 등록한다. */
+    /** 별도 사용자 계정을 만들고 그 사용자로 (주어진 instanceId에) agent를 등록한다. */
     private String[] registerSecondUserAndAgent(String instanceId) throws Exception {
         long ts = System.nanoTime();
-        String email2 = "agent2-" + ts + "@dankook.ac.kr";
-        String regJson2 = mvc.perform(post("/api/users/register")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"studentId\":\"B" + Math.abs(ts % 10_000_000L) + "\","
-                                + "\"email\":\"" + email2 + "\"}"))
-                .andReturn().getResponse().getContentAsString();
-        String apiKey2 = JsonPath.read(regJson2, "$.apiKey");
-
+        String token2 = login(String.valueOf(90_000_000L + Math.abs(ts % 9_000_000L)));
         String agentJson2 = mvc.perform(post("/api/agents/register")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"instanceId\":\"" + instanceId + "\"}")
-                        .header("Authorization", "Bearer " + apiKey2))
+                        .header("Authorization", "Bearer " + token2))
                 .andReturn().getResponse().getContentAsString();
-        return new String[]{apiKey2,
+        return new String[]{token2,
                 JsonPath.read(agentJson2, "$.agentId"),
                 JsonPath.read(agentJson2, "$.agentToken")};
     }
@@ -76,11 +82,10 @@ class AgentApiTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"" + name + "\","
                                 + "\"instanceId\":\"" + instanceId + "\","
-                                + "\"privateIp\":\"10.0.5.1\","
                                 + "\"localPort\":" + port + ","
                                 + "\"protocol\":\"HTTP\","
                                 + "\"scope\":\"INTERNAL\"}")
-                        .header("Authorization", "Bearer " + apiKey))
+                        .header("Authorization", "Bearer " + token))
                 .andReturn().getResponse().getContentAsString();
     }
 
@@ -90,12 +95,12 @@ class AgentApiTest {
     void agentRegister_returnsAgentIdAndToken() throws Exception {
         mvc.perform(post("/api/agents/register")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"instanceId\":\"solid-reg-01\"}")
-                        .header("Authorization", "Bearer " + apiKey))
+                        .content("{\"instanceId\":\"" + vmId + "\"}")
+                        .header("Authorization", "Bearer " + token))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.agentId").isNotEmpty())
                 .andExpect(jsonPath("$.agentToken").isNotEmpty())
-                .andExpect(jsonPath("$.instanceId").value("solid-reg-01"));
+                .andExpect(jsonPath("$.instanceId").value(vmId));
     }
 
     @Test
@@ -111,7 +116,7 @@ class AgentApiTest {
         mvc.perform(post("/api/agents/register")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"instanceId\":\"\"}")
-                        .header("Authorization", "Bearer " + apiKey))
+                        .header("Authorization", "Bearer " + token))
                 .andExpect(status().isBadRequest());
     }
 
@@ -119,17 +124,17 @@ class AgentApiTest {
 
     @Test
     void heartbeat_afterPublish_returnsOpenTunnelCommand() throws Exception {
-        String svcJson = createSvc("hb-pub", "solid-hb-01", 4000);
+        String svcJson = createSvc("hb-pub", vmId, 4000);
         String svcId = JsonPath.read(svcJson, "$.id");
 
-        String agentJson = registerAgent("solid-hb-01");
+        String agentJson = registerAgent(vmId);
         String agentId   = JsonPath.read(agentJson, "$.agentId");
         String agentToken = JsonPath.read(agentJson, "$.agentToken");
 
         mvc.perform(post("/api/services/" + svcId + "/publish")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"ttlHours\":1}")
-                .header("Authorization", "Bearer " + apiKey));
+                .header("Authorization", "Bearer " + token));
 
         mvc.perform(post("/api/agents/" + agentId + "/heartbeat")
                         .header("X-Agent-Token", agentToken))
@@ -141,9 +146,9 @@ class AgentApiTest {
 
     @Test
     void heartbeat_noCommands_returnsEmptyList() throws Exception {
-        createSvc("hb-idle", "solid-hb-02", 5000);  // not published
+        createSvc("hb-idle", vmId, 5000);  // not published
 
-        String agentJson = registerAgent("solid-hb-02");
+        String agentJson = registerAgent(vmId);
         String agentId   = JsonPath.read(agentJson, "$.agentId");
         String agentToken = JsonPath.read(agentJson, "$.agentToken");
 
@@ -155,7 +160,7 @@ class AgentApiTest {
 
     @Test
     void heartbeat_wrongToken_returns401() throws Exception {
-        String agentJson = registerAgent("solid-hb-auth");
+        String agentJson = registerAgent(vmId);
         String agentId   = JsonPath.read(agentJson, "$.agentId");
 
         mvc.perform(post("/api/agents/" + agentId + "/heartbeat")
@@ -167,16 +172,16 @@ class AgentApiTest {
 
     @Test
     void heartbeat_fromDifferentInstance_returnsNoCommands() throws Exception {
-        String svcJson = createSvc("hbsec-svc", "solid-hbsec-01", 5500);
+        String svcJson = createSvc("hbsec-svc", vmId, 5500);
         String svcId = JsonPath.read(svcJson, "$.id");
 
         mvc.perform(post("/api/services/" + svcId + "/publish")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"ttlHours\":1}")
-                .header("Authorization", "Bearer " + apiKey));
+                .header("Authorization", "Bearer " + token));
 
-        // 다른 instanceId로 등록된 agent
-        String agentJson = registerAgent("solid-hbsec-99");
+        // 다른(그러나 본인 소유) instanceId로 등록된 agent
+        String agentJson = registerAgent(vmId2);
         String agentId   = JsonPath.read(agentJson, "$.agentId");
         String agentToken = JsonPath.read(agentJson, "$.agentToken");
 
@@ -190,20 +195,20 @@ class AgentApiTest {
 
     @Test
     void heartbeat_doesNotLeakCommandsAcrossUsers() throws Exception {
-        // User1이 solid-leak-01에 서비스를 등록하고 publish
-        String svcJson = createSvc("leak-svc", "solid-leak-01", 5600);
+        // User1이 vmId에 서비스를 등록하고 publish
+        String svcJson = createSvc("leak-svc", vmId, 5600);
         String svcId = JsonPath.read(svcJson, "$.id");
 
         mvc.perform(post("/api/services/" + svcId + "/publish")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"ttlHours\":1}")
-                .header("Authorization", "Bearer " + apiKey));
+                .header("Authorization", "Bearer " + token));
 
-        // User2가 동일한 instanceId(solid-leak-01)로 agent 등록
-        String[] user2 = registerSecondUserAndAgent("solid-leak-01");
+        // User2가 동일한 instanceId(User1의 vmId)로 agent 등록
+        String[] user2 = registerSecondUserAndAgent(vmId);
         String agentId2 = user2[1], agentToken2 = user2[2];
 
-        // User2의 agent는 User1의 명령을 볼 수 없어야 함
+        // User2의 agent는 User1의 명령을 볼 수 없어야 함 (ownerId 스코핑)
         mvc.perform(post("/api/agents/" + agentId2 + "/heartbeat")
                         .header("X-Agent-Token", agentToken2))
                 .andExpect(status().isOk())
@@ -214,17 +219,17 @@ class AgentApiTest {
 
     @Test
     void report_tunnelReady_serviceBecomesPublic() throws Exception {
-        String svcJson = createSvc("ready-svc", "solid-rd-01", 6000);
+        String svcJson = createSvc("ready-svc", vmId, 6000);
         String svcId   = JsonPath.read(svcJson, "$.id");
 
-        String agentJson = registerAgent("solid-rd-01");
+        String agentJson = registerAgent(vmId);
         String agentId   = JsonPath.read(agentJson, "$.agentId");
         String agentToken = JsonPath.read(agentJson, "$.agentToken");
 
         mvc.perform(post("/api/services/" + svcId + "/publish")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"ttlHours\":1}")
-                .header("Authorization", "Bearer " + apiKey));
+                .header("Authorization", "Bearer " + token));
 
         mvc.perform(post("/api/agents/" + agentId + "/report")
                         .header("X-Agent-Token", agentToken)
@@ -235,7 +240,7 @@ class AgentApiTest {
                 .andExpect(status().isOk());
 
         mvc.perform(get("/api/services/" + svcId)
-                        .header("Authorization", "Bearer " + apiKey))
+                        .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.scope").value("PUBLIC"))
                 .andExpect(jsonPath("$.status").value("ONLINE"))
@@ -247,20 +252,20 @@ class AgentApiTest {
 
     @Test
     void report_fromWrongInstance_isIgnored() throws Exception {
-        String svcJson = createSvc("sec-svc", "solid-sec-01", 6100);
+        String svcJson = createSvc("sec-svc", vmId, 6100);
         String svcId = JsonPath.read(svcJson, "$.id");
 
         mvc.perform(post("/api/services/" + svcId + "/publish")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"ttlHours\":1}")
-                .header("Authorization", "Bearer " + apiKey));
+                .header("Authorization", "Bearer " + token));
 
-        // 다른 instanceId로 등록된 agent
-        String agentJson = registerAgent("solid-sec-99");
+        // 다른(본인 소유) instanceId로 등록된 agent
+        String agentJson = registerAgent(vmId2);
         String agentId   = JsonPath.read(agentJson, "$.agentId");
         String agentToken = JsonPath.read(agentJson, "$.agentToken");
 
-        // 다른 서비스에 TUNNEL_READY 보고 시도 (instanceId 불일치)
+        // 서비스에 TUNNEL_READY 보고 시도 (instanceId 불일치)
         mvc.perform(post("/api/agents/" + agentId + "/report")
                         .header("X-Agent-Token", agentToken)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -271,7 +276,7 @@ class AgentApiTest {
 
         // 서비스는 여전히 PENDING 상태, PUBLIC이 아님
         mvc.perform(get("/api/services/" + svcId)
-                        .header("Authorization", "Bearer " + apiKey))
+                        .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.scope").value("INTERNAL"))
                 .andExpect(jsonPath("$.pendingCommand").value("OPEN_TUNNEL"));
@@ -281,17 +286,17 @@ class AgentApiTest {
 
     @Test
     void report_tunnelStopped_scopeRestored() throws Exception {
-        String svcJson = createSvc("stop-svc", "solid-st-01", 7000);
+        String svcJson = createSvc("stop-svc", vmId, 7000);
         String svcId   = JsonPath.read(svcJson, "$.id");
 
-        String agentJson = registerAgent("solid-st-01");
+        String agentJson = registerAgent(vmId);
         String agentId   = JsonPath.read(agentJson, "$.agentId");
         String agentToken = JsonPath.read(agentJson, "$.agentToken");
 
         mvc.perform(post("/api/services/" + svcId + "/publish")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"ttlHours\":1}")
-                .header("Authorization", "Bearer " + apiKey));
+                .header("Authorization", "Bearer " + token));
 
         mvc.perform(post("/api/agents/" + agentId + "/report")
                 .header("X-Agent-Token", agentToken)
@@ -301,7 +306,7 @@ class AgentApiTest {
                         + "\"publicUrl\":\"https://stop-test.trycloudflare.com\"}"));
 
         mvc.perform(delete("/api/services/" + svcId + "/publish")
-                        .header("Authorization", "Bearer " + apiKey))
+                        .header("Authorization", "Bearer " + token))
                 .andExpect(jsonPath("$.pendingCommand").value("CLOSE_TUNNEL"));
 
         mvc.perform(post("/api/agents/" + agentId + "/report")
@@ -311,7 +316,7 @@ class AgentApiTest {
                 .andExpect(status().isOk());
 
         mvc.perform(get("/api/services/" + svcId)
-                        .header("Authorization", "Bearer " + apiKey))
+                        .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.scope").value("INTERNAL"))
                 .andExpect(jsonPath("$.status").value("UNKNOWN"))
@@ -323,17 +328,17 @@ class AgentApiTest {
 
     @Test
     void report_tunnelFailed_scopeRestoredAndOffline() throws Exception {
-        String svcJson = createSvc("fail-svc", "solid-fl-01", 8000);
+        String svcJson = createSvc("fail-svc", vmId, 8000);
         String svcId   = JsonPath.read(svcJson, "$.id");
 
-        String agentJson = registerAgent("solid-fl-01");
+        String agentJson = registerAgent(vmId);
         String agentId   = JsonPath.read(agentJson, "$.agentId");
         String agentToken = JsonPath.read(agentJson, "$.agentToken");
 
         mvc.perform(post("/api/services/" + svcId + "/publish")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"ttlHours\":1}")
-                .header("Authorization", "Bearer " + apiKey));
+                .header("Authorization", "Bearer " + token));
 
         mvc.perform(post("/api/agents/" + agentId + "/report")
                         .header("X-Agent-Token", agentToken)
@@ -344,7 +349,7 @@ class AgentApiTest {
                 .andExpect(status().isOk());
 
         mvc.perform(get("/api/services/" + svcId)
-                        .header("Authorization", "Bearer " + apiKey))
+                        .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.scope").value("INTERNAL"))
                 .andExpect(jsonPath("$.status").value("OFFLINE"))
@@ -356,17 +361,17 @@ class AgentApiTest {
 
     @Test
     void cleanExpired_withAliveAgent_setsCloseTunnelCommand() throws Exception {
-        String svcJson = createSvc("ttl-svc", "solid-ttl-01", 9000);
+        String svcJson = createSvc("ttl-svc", vmId, 9000);
         String svcId   = JsonPath.read(svcJson, "$.id");
 
-        String agentJson = registerAgent("solid-ttl-01");
+        String agentJson = registerAgent(vmId);
         String agentId   = JsonPath.read(agentJson, "$.agentId");
         String agentToken = JsonPath.read(agentJson, "$.agentToken");
 
         mvc.perform(post("/api/services/" + svcId + "/publish")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"ttlHours\":1}")
-                .header("Authorization", "Bearer " + apiKey));
+                .header("Authorization", "Bearer " + token));
 
         mvc.perform(post("/api/agents/" + agentId + "/report")
                 .header("X-Agent-Token", agentToken)
@@ -383,7 +388,7 @@ class AgentApiTest {
         serviceRegistry.cleanExpiredPublic();
 
         mvc.perform(get("/api/services/" + svcId)
-                        .header("Authorization", "Bearer " + apiKey))
+                        .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.pendingCommand").value("CLOSE_TUNNEL"));
     }
@@ -392,10 +397,10 @@ class AgentApiTest {
 
     @Test
     void report_tunnelReady_whenNotPending_isIgnored() throws Exception {
-        String svcJson = createSvc("not-pending-svc", "solid-np-01", 12000);
+        String svcJson = createSvc("not-pending-svc", vmId, 12000);
         String svcId   = JsonPath.read(svcJson, "$.id");
 
-        String agentJson  = registerAgent("solid-np-01");
+        String agentJson  = registerAgent(vmId);
         String agentId    = JsonPath.read(agentJson, "$.agentId");
         String agentToken = JsonPath.read(agentJson, "$.agentToken");
 
@@ -409,7 +414,7 @@ class AgentApiTest {
                 .andExpect(status().isOk()); // 200 반환하되 서비스 상태는 변경 없음
 
         mvc.perform(get("/api/services/" + svcId)
-                        .header("Authorization", "Bearer " + apiKey))
+                        .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.scope").value("INTERNAL"))
                 .andExpect(jsonPath("$.status").value("UNKNOWN"))
@@ -420,18 +425,18 @@ class AgentApiTest {
 
     @Test
     void orphanClose_fromDifferentOwner_isNotDelivered() throws Exception {
-        // User A (this.apiKey)가 solid-orph-01에 서비스 등록 → 터널 열기 → 삭제
-        String svcJson = createSvc("orph-svc", "solid-orph-01", 11000);
+        // User A (this.token)가 vmId에 서비스 등록 → 터널 열기 → 삭제
+        String svcJson = createSvc("orph-svc", vmId, 11000);
         String svcId   = JsonPath.read(svcJson, "$.id");
 
-        String agentJsonA  = registerAgent("solid-orph-01");
+        String agentJsonA  = registerAgent(vmId);
         String agentIdA    = JsonPath.read(agentJsonA, "$.agentId");
         String agentTokenA = JsonPath.read(agentJsonA, "$.agentToken");
 
         mvc.perform(post("/api/services/" + svcId + "/publish")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"ttlHours\":1}")
-                .header("Authorization", "Bearer " + apiKey));
+                .header("Authorization", "Bearer " + token));
 
         mvc.perform(post("/api/agents/" + agentIdA + "/report")
                 .header("X-Agent-Token", agentTokenA)
@@ -440,13 +445,13 @@ class AgentApiTest {
                         + "\"event\":\"TUNNEL_READY\","
                         + "\"publicUrl\":\"https://orph-test.trycloudflare.com\"}"));
 
-        // 서비스 삭제 → User A 소유 orphan CLOSE_TUNNEL이 "solid-orph-01|user-A-email"에 저장됨
+        // 서비스 삭제 → User A 소유 orphan CLOSE_TUNNEL이 "vmId|userA학번"에 저장됨
         mvc.perform(delete("/api/services/" + svcId)
-                        .header("Authorization", "Bearer " + apiKey))
+                        .header("Authorization", "Bearer " + token))
                 .andExpect(status().isNoContent());
 
-        // User B가 동일한 instanceId(solid-orph-01)로 agent 등록
-        String[] user2     = registerSecondUserAndAgent("solid-orph-01");
+        // User B가 동일한 instanceId(vmId)로 agent 등록
+        String[] user2     = registerSecondUserAndAgent(vmId);
         String agentId2    = user2[1];
         String agentToken2 = user2[2];
 
@@ -461,17 +466,17 @@ class AgentApiTest {
 
     @Test
     void delete_withActiveTunnel_addsOrphanCloseToHeartbeat() throws Exception {
-        String svcJson = createSvc("del-tunnel", "solid-del-01", 10000);
+        String svcJson = createSvc("del-tunnel", vmId, 10000);
         String svcId   = JsonPath.read(svcJson, "$.id");
 
-        String agentJson = registerAgent("solid-del-01");
+        String agentJson = registerAgent(vmId);
         String agentId   = JsonPath.read(agentJson, "$.agentId");
         String agentToken = JsonPath.read(agentJson, "$.agentToken");
 
         mvc.perform(post("/api/services/" + svcId + "/publish")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"ttlHours\":1}")
-                .header("Authorization", "Bearer " + apiKey));
+                .header("Authorization", "Bearer " + token));
 
         // Agent opens tunnel → PUBLIC
         mvc.perform(post("/api/agents/" + agentId + "/report")
@@ -483,7 +488,7 @@ class AgentApiTest {
 
         // Delete the service while tunnel is active
         mvc.perform(delete("/api/services/" + svcId)
-                        .header("Authorization", "Bearer " + apiKey))
+                        .header("Authorization", "Bearer " + token))
                 .andExpect(status().isNoContent());
 
         // Next heartbeat must contain CLOSE_TUNNEL for the deleted service

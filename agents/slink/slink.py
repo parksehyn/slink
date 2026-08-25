@@ -2,6 +2,7 @@
 """slink - SOLID VM <-> Colab GPU 연결 CLI"""
 
 import argparse
+import getpass
 import json
 import os
 import shutil
@@ -32,6 +33,15 @@ def load_config() -> dict:
 def save_config(cfg: dict):
     with open(SLINKRC, "w", encoding="utf-8") as f:
         json.dump(cfg, f, ensure_ascii=False, indent=2)
+
+
+def load_config_optional() -> dict:
+    """rc 파일이 없어도 빈 설정으로 동작. SOLID 인증 기반 명령(agent start 등)은
+    `slink init`(레거시 Colab sk-dku- 등록)이 필요 없으므로 하드 종료하지 않는다."""
+    if not os.path.exists(SLINKRC):
+        return {}
+    with open(SLINKRC, encoding="utf-8") as f:
+        return json.load(f)
 
 
 # ── daemon helpers ─────────────────────────────────────────────────────────────
@@ -118,6 +128,7 @@ def cmd_init(args):
     print()
     print("  [VM 서비스 외부 공개]")
     print("  SOLID VM에서: slink agent start --instance-id <solid-XXXX>")
+    print("  (에이전트 등록은 SOLID 로그인 사용 — 실행 시 SOLID 비밀번호를 입력합니다)")
 
 
 def cmd_whoami(args):
@@ -287,8 +298,72 @@ def _get_session(args) -> tuple[dict, str]:
     return resp.json(), relay_url
 
 
+def _solid_login(relay_url: str, username: str, password: str, domain: str) -> str:
+    """SOLID(CloudStack) 로그인 → slk- 토큰. 외부 자원 연결(--resource)에 사용."""
+    cfg = load_config_optional()
+    username = username or cfg.get("student_id") or ""
+    if not username:
+        username = input("  SOLID 학번/계정: ").strip()
+    if domain is None:
+        domain = cfg.get("domain", "")
+    if not password:
+        password = os.getenv("SLINK_SOLID_PASSWORD")
+    if not password:
+        password = getpass.getpass(f"  SOLID 비밀번호 ({username}): ")
+    try:
+        resp = requests.post(
+            f"{relay_url}/api/auth/login",
+            json={"username": username, "password": password, "domain": domain or ""},
+            timeout=10,
+        )
+    except requests.ConnectionError:
+        print(f"[slink] 오류: Relay 서버에 연결할 수 없습니다 ({relay_url})")
+        sys.exit(1)
+    if resp.status_code == 401:
+        print("[slink] 오류: SOLID 로그인 실패. 학번/비밀번호/도메인을 확인하세요.")
+        sys.exit(1)
+    resp.raise_for_status()
+    return resp.json()["token"]
+
+
+def _get_resource(args) -> tuple[dict, str]:
+    """외부 자원(--resource)을 SOLID 인증으로 조회해 connect 흐름이 기대하는 세션 형태로 매핑."""
+    relay_url = args.relay.rstrip("/")
+    token = _solid_login(relay_url, args.username, args.password, args.domain)
+    print(f"[slink] 외부 자원 {args.resource} 조회 중...")
+    try:
+        resp = requests.get(
+            f"{relay_url}/api/resources/{args.resource}",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10,
+        )
+    except requests.ConnectionError:
+        print(f"[slink] 오류: Relay 서버에 연결할 수 없습니다 ({relay_url})")
+        sys.exit(1)
+    if resp.status_code == 401:
+        print("[slink] 오류: SOLID 인증 실패.")
+        sys.exit(1)
+    if resp.status_code == 404:
+        print("[slink] 오류: 자원을 찾을 수 없습니다(소유자만 접근 가능).")
+        sys.exit(1)
+    resp.raise_for_status()
+    r = resp.json()
+    if not r.get("publicUrl"):
+        print(f"[slink] 오류: 자원이 아직 준비되지 않았습니다(상태={r.get('status')}). 외부 에이전트가 실행 중인지 확인하세요.")
+        sys.exit(1)
+    session = {
+        "ngrokHost": r["publicUrl"],
+        "jupyterToken": r.get("serviceToken") or "",
+        "expiresAt": r.get("expiresAt") or "",
+    }
+    return session, relay_url
+
+
 def cmd_connect(args):
-    session, _ = _get_session(args)
+    if getattr(args, "resource", None):
+        session, _ = _get_resource(args)
+    else:
+        session, _ = _get_session(args)
     jupyter_base_url = session["ngrokHost"].rstrip("/")
     token = session["jupyterToken"]
 
@@ -468,7 +543,7 @@ def _agent_report(relay_url: str, agent_id: str, agent_token: str,
 
 
 def cmd_agent_start(args):
-    cfg = load_config()
+    cfg = load_config_optional()   # agent는 SOLID 인증 → slink init 불필요
     relay_url = (args.relay or cfg.get("relay_url", RELAY_DEFAULT)).rstrip("/")
     instance_id = args.instance_id
 
@@ -482,23 +557,45 @@ def cmd_agent_start(args):
     print(f"[slink-agent] 인스턴스: {instance_id}")
     print(f"[slink-agent] Relay: {relay_url}")
 
-    api_key = cfg.get("api_key", "")
-    if not api_key:
-        print("[slink-agent] 오류: API Key가 없습니다. 먼저 'slink init' 을 실행하세요.")
-        sys.exit(1)
+    # SOLID 로그인으로 등록한다(등록만 SOLID 세션 slk-, 이후 heartbeat/report는 발급된 at- 토큰).
+    username = args.username or cfg.get("student_id") or ""
+    domain = args.domain if args.domain is not None else cfg.get("domain", "")
+    if not username:
+        username = input("  SOLID 학번/계정: ").strip()
+    password = args.password or os.getenv("SLINK_SOLID_PASSWORD")
+    if not password:
+        password = getpass.getpass(f"  SOLID 비밀번호 ({username}): ")
 
-    # Register this agent (Bearer auth ties the agent to the student's account)
+    try:
+        login_resp = requests.post(
+            f"{relay_url}/api/auth/login",
+            json={"username": username, "password": password, "domain": domain},
+            timeout=10,
+        )
+    except requests.ConnectionError:
+        print(f"[slink-agent] 오류: Relay 서버에 연결할 수 없습니다 ({relay_url})")
+        sys.exit(1)
+    if login_resp.status_code == 401:
+        print("[slink-agent] 오류: SOLID 로그인 실패. 학번/비밀번호/도메인을 확인하세요.")
+        sys.exit(1)
+    login_resp.raise_for_status()
+    solid_token = login_resp.json()["token"]
+
+    # Register this agent (SOLID 세션이 학생 계정=학번에 에이전트를 묶는다)
     try:
         resp = requests.post(
             f"{relay_url}/api/agents/register",
             json={"instanceId": instance_id},
-            headers={"Authorization": f"Bearer {api_key}"},
+            headers={"Authorization": f"Bearer {solid_token}"},
             timeout=10,
         )
-        resp.raise_for_status()
     except requests.ConnectionError:
         print(f"[slink-agent] 오류: Relay 서버에 연결할 수 없습니다 ({relay_url})")
         sys.exit(1)
+    if resp.status_code == 401:
+        print("[slink-agent] 오류: 에이전트 등록 인증 실패(SOLID 세션 만료/무효).")
+        sys.exit(1)
+    resp.raise_for_status()
 
     data = resp.json()
     agent_id = data["agentId"]
@@ -623,6 +720,16 @@ def main():
         "--relay", default=os.getenv(RELAY_ENV, RELAY_DEFAULT), metavar="URL",
         help=f"Relay 서버 주소 (환경변수 {RELAY_ENV} 또는 기본값: {RELAY_DEFAULT})"
     )
+    c.add_argument(
+        "--resource", default=None, metavar="ID",
+        help="외부 자원 ID로 연결 (포털 '외부 자원 연결'). SOLID 로그인을 사용합니다."
+    )
+    c.add_argument("--username", default=None, metavar="ID",
+                   help="SOLID 학번/계정 (--resource 사용 시; 생략 시 ~/.slinkrc 또는 프롬프트)")
+    c.add_argument("--password", default=None, metavar="PW",
+                   help="SOLID 비밀번호 (--resource 헤드리스용; 없으면 SLINK_SOLID_PASSWORD 또는 프롬프트)")
+    c.add_argument("--domain", default=None, metavar="DOMAIN",
+                   help="SOLID 도메인 (--resource 사용 시, 선택)")
 
     # disconnect
     sub.add_parser("disconnect", help="백그라운드 keepalive 세션 종료")
@@ -641,6 +748,18 @@ def main():
     agent_start.add_argument(
         "--relay", default=None, metavar="URL",
         help=f"Relay 서버 주소 (기본값: ~/.slinkrc의 relay_url 또는 {RELAY_DEFAULT})"
+    )
+    agent_start.add_argument(
+        "--username", default=None, metavar="ID",
+        help="SOLID 학번/계정 (생략 시 ~/.slinkrc의 student_id, 없으면 프롬프트)"
+    )
+    agent_start.add_argument(
+        "--password", default=None, metavar="PW",
+        help="SOLID 비밀번호 (생략 시 환경변수 SLINK_SOLID_PASSWORD 또는 프롬프트). 헤드리스/systemd용."
+    )
+    agent_start.add_argument(
+        "--domain", default=None, metavar="DOMAIN",
+        help="SOLID 도메인 (선택)"
     )
 
     args = parser.parse_args()

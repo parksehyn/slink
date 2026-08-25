@@ -1,8 +1,12 @@
 # 도메인 / 터널링 탭 재구성 설계
 
-> 상태: 확정 설계 (구현 전)
+> 상태: 확정 설계 — DNS 탭 + 터널링 탭(서비스/연결/Agent) 구현 완료, **인증은 SOLID 세션(`slk-`)으로 통일됨**(2026-06-24).
 > 작성일: 2026-06-14
 > 관련 문서: [service-portal-design.md](service-portal-design.md), [roadmap.md](roadmap.md), [internal-dns-requirements.md](internal-dns-requirements.md), [demo-theory.md](demo-theory.md)
+>
+> ⚠️ 이 문서의 일부 인증 묘사는 초기 `sk-dku-` 기준일 수 있다. 현재 인바운드 서비스·아웃바운드 연결·VM Agent 등록은
+> 모두 SOLID 인증(`slk-`, 소유자=학번)이며 인바운드 서비스는 vmId 기반(서버가 사설 IP·소유권 채움)이다.
+> 최신 구현 현황은 [progress.md](progress.md) "터널링 SOLID 인증 통일" 절 참고.
 
 ## 1. 배경
 
@@ -127,6 +131,18 @@ enum DnsRecordType { A, CNAME }
 - 백엔드: 기존 `POST/DELETE /api/services/{id}/publish` + VM Agent + Cloudflare Quick Tunnel.
 - VM 선택은 SolidApi 목록에서(결정 #1). TTL/즉시 종료 등 기존 흐름 유지.
 - 신규 백엔드 없음 — UI를 터널 탭으로 재배치.
+
+#### 접근 등급 2단계 (중요 — 경로가 다름)
+
+"퍼미션 받은 사람만 접근"은 등급에 따라 **기술 경로가 다르다.** 둘을 혼동하지 말 것.
+
+| 등급 | 누가 접근 | 실제 경로 | 공개 터널 필요? | 상태 |
+|------|-----------|-----------|------------------|------|
+| **DKU_INTERNAL (기본)** | SOLID 사설망/VPN 사용자 | **내부 DNS(사설 IP A 레코드)** — VPN 사용자가 사설 IP로 직접 접근. INTERNAL scope가 곧 이것 | ❌ 불필요 | ✅ DNS 탭으로 동작(통제=네트워크/VPN/방화벽, OpenVPN SSH와 동일) |
+| **외부 허용 (ALLOWLIST 등)** | VPN 밖 지정 대상 | **공개 터널(Cloudflare Named) + Access(이메일 허용)** | ✅ 필요 | ⏳ 모델만 존재, 시행은 Phase 2(계정·고정 도메인 확보 후) |
+
+즉 "SOLID 내부만"은 **공개 터널 없이 내부 DNS로 끝난다.** 공개 터널은 *VPN 밖 외부인*에게 열 때만 쓴다.
+`AccessPolicy`/`allowedEmails`는 외부 허용 등급의 시행 모델이며 현재는 저장·표시만 한다(시행 Phase 2).
 
 ### 5.2 일반 터널링 (일반화한 새 기능, 설계만)
 

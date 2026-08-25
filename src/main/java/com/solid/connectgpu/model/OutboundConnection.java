@@ -31,6 +31,19 @@ public class OutboundConnection {
         this.createdAt = Instant.now();
     }
 
+    /** 영속 스냅샷으로부터 복원 (id·생성시각 보존). */
+    public OutboundConnection(String id, String ownerId, String name, ConnectionType type,
+                              String url, String token, String note, Instant createdAt) {
+        this.id = id;
+        this.ownerId = ownerId;
+        this.name = name;
+        this.type = type;
+        this.url = url;
+        this.token = token;
+        this.note = note;
+        this.createdAt = createdAt;
+    }
+
     public String getId()              { return id; }
     public String getOwnerId()         { return ownerId; }
     public String getName()            { return name; }

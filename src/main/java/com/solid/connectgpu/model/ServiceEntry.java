@@ -44,6 +44,34 @@ public class ServiceEntry {
         this.updatedAt = Instant.now();
     }
 
+    /** 영속 스냅샷으로부터 복원 (id·시각·상태를 그대로 보존). */
+    public ServiceEntry(String id, String ownerId, String name, String instanceId, String privateIp,
+                        int localPort, Protocol protocol, ServiceScope scope, ServiceStatus status,
+                        AccessPolicy accessPolicy, List<String> allowedEmails, String internalHostname,
+                        String publicUrl, Instant publicExpiresAt, ServiceScope scopeBeforePublish,
+                        AgentCommand pendingCommand, String agentId, Instant createdAt, Instant updatedAt) {
+        this.id = id;
+        this.ownerId = ownerId;
+        this.name = name;
+        this.instanceId = instanceId;
+        this.privateIp = privateIp;
+        this.localPort = localPort;
+        this.protocol = protocol;
+        this.scope = scope;
+        this.status = status;
+        this.accessPolicy = accessPolicy != null ? accessPolicy : AccessPolicy.DKU_INTERNAL;
+        this.allowedEmails = allowedEmails != null ? List.copyOf(allowedEmails) : List.of();
+        this.internalHostname = internalHostname != null ? internalHostname
+                : name + "." + instanceId + ".solid.internal";
+        this.publicUrl = publicUrl;
+        this.publicExpiresAt = publicExpiresAt;
+        this.scopeBeforePublish = scopeBeforePublish;
+        this.pendingCommand = pendingCommand != null ? pendingCommand : AgentCommand.NONE;
+        this.agentId = agentId;
+        this.createdAt = createdAt;
+        this.updatedAt = updatedAt;
+    }
+
     public boolean isPublicExpired() {
         return publicExpiresAt != null && Instant.now().isAfter(publicExpiresAt);
     }

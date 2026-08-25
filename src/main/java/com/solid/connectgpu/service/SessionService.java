@@ -28,6 +28,9 @@ public class SessionService {
         return session;
     }
 
+    /** 지표: 등록된 Colab 세션 수(만료 정리 전 포함). */
+    public long count() { return sessions.size(); }
+
     public Optional<Session> find(String code) {
         Session s = sessions.get(code);
         if (s == null || s.isExpired()) {

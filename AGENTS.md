@@ -115,4 +115,4 @@ cloudflared Quick Tunnel을 열어 `trycloudflare.com` URL을 Relay에 보고한
 - [`docs/service-portal-design.md`](docs/service-portal-design.md) — Service Portal 상세 설계 (기준 문서)
 - [`docs/roadmap.md`](docs/roadmap.md) — 단계별 구현 계획 + 보안 제약 ⚠️
 - [`docs/progress.md`](docs/progress.md) — 구현 완료 기능 기록
-- [`docs/design-a.md`](docs/design-a.md) — Colab 연결 설계 기록
+- [`docs/archive/design-a.md`](docs/archive/design-a.md) — (아카이브) Colab 연결 A안 설계 기록 — 구현 완료, 역사 참고용

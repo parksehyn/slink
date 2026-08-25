@@ -25,7 +25,9 @@
       "WebFetch(domain:raw.githubusercontent.com)",
       "WebFetch(domain:github.com)",
       "Bash(./gradlew bootRun)",
-      "Bash(break)"
+      "Bash(break)",
+      "PowerShell(git fetch *)",
+      "PowerShell(.\\\\gradlew test --console=plain)"
     ]
   }
 }

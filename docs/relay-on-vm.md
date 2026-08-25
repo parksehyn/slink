@@ -10,17 +10,33 @@
 ## 1. 왜 단순 이전이 안 되는가 (핵심 제약)
 
 SOLID VM은 사설 IP(`10.0.X.X`) + OpenVPN 전용 → **외부에서 인바운드로 못 들어온다.**
-그런데 Relay에는 다음이 닿아야 한다.
+단, 먼저 짚을 것: **Relay는 URL을 보관하는 장부(컨트롤 플레인)일 뿐 실제 트래픽은 안 지난다.**
+그래서 "무엇이 Relay에 닿아야 하나(컨트롤 플레인)"와 "실제 접근 경로(데이터 플레인)"를 나눠 봐야 한다.
+
+### 1-1. 컨트롤 플레인 — 누가 Relay HTTP API에 닿아야 하나
 
 | 닿아야 하는 주체 | 위치 | 사설망 VM Relay에 도달? |
 |------------------|------|--------------------------|
 | VM Agent | SOLID VM 내부 | ✅ (사설망/Shared Network) |
 | slink CLI | SOLID VM 내부 | ✅ |
 | 학생 브라우저(포털) | VPN 접속 시 | ✅ / VPN 없으면 ❌ |
-| **Colab / 외부 서비스** | 인터넷(Google) | ❌ **불가** |
+| 아웃바운드 등록(학생이 외부 URL 등록) | 포털/CLI(SOLID 내부·VPN) | ✅ |
+| **Colab 자동 등록**(`/api/session/register`) | 인터넷(Google) | ❌ **불가** |
 
-→ 외부(Colab) 도달이 필요한 한, Relay는 **공인 도달 경로**가 있어야 한다.
-이것이 progress.md에 "불가능 — Railway 유지"로 기록됐던 이유다.
+→ **공인 도달 경로가 꼭 필요한 건 "외부 서비스가 Relay에 스스로 push하는 자동 등록"(현재 Colab)뿐.**
+나머지(Agent·CLI·포털·학생이 직접 하는 아웃바운드 등록)는 SOLID 내부/VPN으로 사설 VM Relay에 닿는다.
+
+### 1-2. 데이터 플레인 — 실제 접근 경로 (Relay 안 거침)
+
+| 동작 | 경로 | 공인 Relay 필요? |
+|------|------|------------------|
+| 아웃바운드 소비(SOLID→외부 서비스) | SOLID VM ──아웃바운드 인터넷──> Cloudflare ──> 외부 | ❌ (SOLID 아웃바운드 인터넷이면 됨) |
+| 인바운드 INTERNAL(VPN 사용자→서비스) | 내부 DNS(사설 IP) + 사설망 직접 접근 | ❌ |
+| 인바운드 외부공개(VPN 밖→서비스) | Cloudflare 터널(Named) + Access | (Relay 아님) Cloudflare 필요 |
+
+→ 외부 서비스를 **소비**하는 동작 자체는 Relay를 안 거치고 SOLID VM의 아웃바운드 인터넷으로 해결된다.
+즉 **아웃바운드·인바운드(INTERNAL) 트랙은 사설 VM Relay로 전부 동작**한다.
+progress.md의 "불가능 — Railway 유지"는 *Colab 자동 등록(컨트롤 플레인 push)* 에 한정된 제약이다.
 
 ## 2. 해법 — Named Tunnel로 VM의 Relay를 공개
 

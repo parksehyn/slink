@@ -1,16 +1,46 @@
-# 내부 DNS 실테스트 — CoreDNS on SOLID VM
+# 내부 DNS 실테스트 — DNS Server on SOLID VM
 
 > 목표: `solid.internal` 존을 **실제로 해석**시키는 DNS 서버를 VM 하나에 띄우고,
 > 다른 VM들에서 `web.solid.internal → 10.0.10.11` 처럼 이름으로 접근되는지 검증한다.
 > 운영팀 권한 없이 **본인이 가진 VM들끼리** 바로 가능하다.
-> 관련: [`../../docs/internal-dns-requirements.md`](../../docs/internal-dns-requirements.md), [`../../docs/relay-on-vm.md`](../../docs/relay-on-vm.md)
+> 관련: [`../../docs/internal-dns-requirements.md`](../../docs/internal-dns-requirements.md), [`../../docs/relay-on-vm.md`](../../docs/relay-on-vm.md), [`../../docs/unified-agent-design.md`](../../docs/unified-agent-design.md) §9
+
+## ⭐ 권장 — 자체 구현 응답기 (CoreDNS·dns-agent·zone 파일 전부 불필요)
+
+2026-07-08부터 앱에 **직접 구현한 DNS 응답기**(`DnsUdpServer`, RFC 1035)가 내장된다.
+DNS Server VM에서 Spring 앱만 켜면 끝 — 포털에서 만든 레코드를 레지스트리에서
+**직접** 서빙하므로 CoreDNS 설치, zone 파일, serial 관리, `dns-agent.py` 폴링이
+모두 필요 없다. 외부/오픈소스 DNS 미사용 방침(직접 구현) 반영.
+
+```bash
+# DNS Server VM에서
+export DNS_SERVER_ENABLED=true          # = dns.server.enabled
+export DNS_SERVER_PORT=53               # 53 바인드는 sudo 또는 setcap 필요
+export DNS_SERVER_UPSTREAM=8.8.8.8      # 존 밖 질의 스텁 포워딩(미설정 시 REFUSED)
+export DNS_STORE_FILE=/var/lib/slink/dns-records.json   # 레코드 영속
+sudo -E java -jar slink-relay.jar
+```
+
+확인 (다른 VM에서):
+```bash
+dig @10.0.10.10 web.solid.internal +short     # → A 레코드 IP
+dig @10.0.10.10 app.solid.internal +short     # → CNAME + 체이닝된 A 한 번에
+dig @10.0.10.10 x.svc.solid.internal +short   # → *.svc 와일드카드 매칭
+dig @10.0.10.10 google.com +short             # → upstream 포워딩
+```
+
+포털 "추가" → `/api/dns/records` → 레지스트리 → **즉시 질의 응답**. 중간 단계 없음.
+클라이언트 VM 리졸버 설정은 아래 4번(스플릿 DNS) 그대로 사용.
+
+> 아래 CoreDNS 방식(1·5·6·7번)은 자체 응답기 이전의 대안으로 남겨둔다.
+> 새로 셋업한다면 위 방법을 쓰면 된다.
 
 ## 구성도
 
 ```
-[VM-A: DNS 서버]  CoreDNS, 10.0.10.10:53
-      ▲ 53/udp,tcp
-      │  "web.solid.internal?" → 10.0.10.11
+[VM-A: DNS 서버]  slink-relay(DnsUdpServer), 10.0.10.10:53
+      ▲ 53/udp
+      │  "web.solid.internal?" → 10.0.10.11 (레지스트리 직접 조회)
 [VM-B] [VM-C] ...  resolv.conf 또는 dig @10.0.10.10 으로 질의
 ```
 
@@ -150,6 +180,25 @@ journalctl -u slink-dns-agent -f
 
 ### 더 상용처럼(push) 가려면
 CoreDNS+폴링 대신 **PowerDNS(REST API)** 로 바꾸고 `RealDnsProvider`가 API로 PUT. Relay가 DNS 서버에 직접 닿아야 함(같은 사설망이면 OK). 코드는 `DnsProvider` 인터페이스만 교체.
+
+## 7. 통합 방식 — 앱이 zone을 직접 작성 (dns-agent 불필요, 권장)
+
+DNS Server VM에 **CoreDNS와 Spring 앱(DNS 기능)을 같이** 올리면, 앱의 `ZoneFileDnsProvider`가
+레코드 변경 시 zone 파일을 직접 재작성 + SOA serial을 증가시킨다. → 별도 `dns-agent.py` 폴링이 필요 없다
+(원격 저장소를 폴링하는 6번 방식의 대안). 레코드 저장도 같은 VM의 파일에 영속된다.
+
+```bash
+# DNS Server VM (CoreDNS와 동일 VM)에서 앱 실행
+export DNS_ZONE_FILE=/etc/coredns/db.solid.internal   # = dns.zone.file
+export DNS_ZONE_NAME=solid.internal
+export DNS_ZONE_NS_IP=10.0.10.10                       # 이 DNS VM 자신
+export DNS_STORE_FILE=/var/lib/slink/dns-records.json  # 레코드 영속(재시작 유지)
+# (선택) 실제 CloudStack: export CLOUDSTACK_API_URL=https://dku.kloud.zone/client/api
+java -jar slink-relay.jar    # 또는 ./gradlew bootRun
+```
+> Spring은 `DNS_ZONE_FILE` 같은 환경변수를 `dns.zone.file` 프로퍼티로 자동 매핑한다.
+> `dns.zone.file` 미설정 시 앱은 로그만 남기는 Mock으로 동작(데모/테스트).
+> 이 통합 방식에서는 zone 파일을 **앱이 자동 관리**하므로 직접 편집 금지(덮어써짐).
 
 ## 트러블슈팅
 

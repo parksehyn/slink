@@ -1,6 +1,6 @@
 # Solid-Link (slink) — 진행 현황 문서
 
-> 최종 업데이트: 2026-05-24
+> 최종 업데이트: 2026-06-24
 
 ## 프로젝트 목표
 
@@ -494,6 +494,121 @@ SOLID VM           → Relay 서버   ← VPN으로 가능
 - [ ] CloudStack API 연동 (VM 소유권 검증) — 완료 전까지 실제 TunnelProvider 비활성
 - [ ] 영속 저장소 도입 (서버 재시작 후 서비스 목록 유지)
 - [ ] 학생별 공개 서비스 개수 및 TTL 정책 적용
+
+### DNS 서비스 실연동 + SOLID 인증 (2026-06-21)
+
+명세서([dns-api-spec.md](dns-api-spec.md)) 기준으로 DNS 기능을 **DNS Server VM 자족형 백엔드**로 재구성.
+터널링 Relay와 분리. ([설계: tabs-redesign 후속, 본 작업의 플랜 반영])
+
+- [x] **SOLID 세션 인증** — `AuthService`/`AuthController`(`/api/auth/login·me·logout`). 학번/비밀번호 →
+  CloudStack `login` → 불투명 토큰(`slk-…`, sessionkey 서버 보관). DNS·VM 엔드포인트가 `sk-dku-` 대신 이걸 사용.
+  `ownerId = account(학번)`. 미설정 시 Mock(임의 자격).
+- [x] **vmId 기반 A 레코드** — 프론트는 vmId만 전송, 서버가 CloudStack에서 사설 IP 조회 + 소유권 검증(§5.2/§7.3).
+  CNAME은 대상 호스트. (`CreateDnsRecordRequest.vmId`, `CloudStackProvider.findVm`)
+- [x] **검증·상태·응답 정합** — 사설 IP 대역(10.0.0.0/8) 검증, 상태값(`PENDING_SYNC/ACTIVE/FAILED`),
+  응답 `fqdn/vmId/vmName/status`, 표준 에러 엔벨로프(§10), 단건 조회 `GET /{id}`.
+- [x] **파일 영속** — `dns.store.file` 설정 시 레코드를 JSON으로 저장/로드(인메모리 대체).
+- [x] **CoreDNS 직접 반영** — `ZoneFileDnsProvider`(`dns.zone.file`)가 zone 파일 재작성 + SOA serial 증가
+  → Corefile `reload`가 자동 반영(dns-agent 폴링 불필요). 미설정 시 기존 `MockDnsProvider`.
+- [x] **실제 CloudStack 골격** — `SolidCloudStackProvider`(`cloudstack.api.url` 설정 시 활성, `listVirtualMachines`).
+- [x] **프론트 DNS 탭** — SOLID 로그인 폼, VM 선택→vmId 전송, 상태·fqdn·vmName 표시, 에러 엔벨로프 파싱.
+- [x] 테스트 갱신/추가(`Auth/Vm/DnsRecord/DnsPersistence ApiTest`), end-to-end HTTP 스모크 통과(Mock).
+
+> 후속(이번 범위 아님): 터널링, Colab CLI·VM Agent·SessionController의 `sk-dku-` 제거,
+> 실제 CloudStack 자격증명/존 권한 발급(운영팀).
+
+### 터널링 SOLID 인증 통일 + vmId 기반 서비스 (2026-06-24, Phase 1)
+
+DNS와 동일하게 터널링(인바운드 서비스 / 아웃바운드 연결 / VM Agent 등록)을 **SOLID 세션 인증(`slk-`)**으로 통일.
+두 방식 = 기존 아웃바운드(`/api/connections`)·인바운드(`/api/services`+publish+Agent) 트랙에 매핑.
+
+- [x] **인증 통일(1A)** — `ServiceController`·`OutboundConnectionController`·`VmAgentController(register)`가
+  `UserService.findByApiKey()`(`sk-dku-`) → `AuthService.resolve()`(`slk-`)로 전환. `ownerId = identity.account()`(학번).
+  heartbeat/report는 등록 시 발급한 에이전트 토큰(`at-`) 유지.
+- [x] **vmId 기반 인바운드 서비스(1A)** — `CreateServiceRequest`에서 `privateIp` 제거. `instanceId`만 받아
+  `cloudStack.findVm()`으로 사설 IP·소유권을 서버가 채움(DNS A 레코드와 동일, 자기신고 IP 차단).
+- [x] **테스트 이전(1A)** — `ServiceApiTest`·`AgentApiTest`·`ConnectionApiTest`를 SOLID 로그인 + 실제 소유 vmId +
+  학번 기반으로 이전. 전체 빌드 그린(회귀 없음).
+- [x] **포털 폼(1B)** — 인바운드 서비스 생성 폼을 VM 선택 필수로(인스턴스·IP 읽기 전용·서버가 채움), 수동 `privateIp` 전송 제거. 낡은 "동작 안 함" 경고 배너 갱신.
+- [x] **CLI(1B)** — `slink agent start`가 SOLID 로그인(`/api/auth/login`)으로 등록 → `slk-` → `at-` 발급.
+  `--username/--password/--domain` + `SLINK_SOLID_PASSWORD`(헤드리스/systemd). Colab `/api/session`은 `sk-dku-` 유지.
+
+후속:
+- [ ] **Phase 2 — AccessPolicy 실제 시행**: 이메일 허용목록 + Cloudflare Access(계정·고정 도메인 확보 후). 현재 모델·UI만.
+- [ ] VM Agent 등록 시 CloudStack instanceId 소유권 검증(방어적, 교차누출은 `(instanceId, ownerId)` 스코핑으로 이미 차단).
+- [ ] Colab `/api/session`·`UserService`의 `sk-dku-` 최종 제거.
+
+### 터널링 영속화 + 학생당 제한 + Relay on VM 골격 (2026-06-29)
+
+DNS(`dns.store.file`)에 이어 **터널링/서비스도 파일 영속**으로. Railway→SOLID VM 이전 시
+재시작·재부팅에도 상태가 보존된다(DNS 패턴 미러: Snapshot record + 원자적 tmp→move).
+
+- [x] **서비스 영속** — `ServiceRegistry`(`service.store.file`). 상태(PUBLIC/PENDING·pendingCommand·
+  publicUrl 등)까지 round-trip. 기동 시 INTERNAL/TEAM은 내부 DNS 레코드 재등록.
+- [x] **아웃바운드 연결 영속** — `OutboundConnectionRegistry`(`connection.store.file`).
+- [x] **VM Agent 영속** — `VmAgentRegistry`(`agent.store.file`). `at-` 토큰 보존 → Relay 재시작 후
+  재등록 불필요. 삭제 서비스의 고아 CLOSE_TUNNEL 명령도 보존. 하트비트는 영속 제외(thrash 방지).
+- [x] **학생당 서비스 제한** — `service.max-per-owner`(기본 10), `service.max-public-per-owner`(기본 3).
+  초과 시 400. 수치는 `application.properties`로 조정.
+- [x] **Relay on SOLID VM 배포 골격** — `deploy/relay/`(slink-relay.service·redeploy.sh·README,
+  `deploy/dns/` 미러). 사설망/VPN 내부 전용. Colab 도달용 Named Tunnel은 후속.
+- [x] **도달성 문서 정정** — relay가 사설 VM이어도 **아웃바운드 소비·인바운드 INTERNAL은 동작**
+  (relay는 URL 장부, 데이터는 SOLID 아웃바운드 인터넷). 공인 경로는 Colab 자동등록·인바운드
+  외부공개에서만 필요. [relay-on-vm.md](relay-on-vm.md) §1, [tabs-redesign.md](tabs-redesign.md) §5.1.
+- [x] 테스트(`TunnelingPersistenceTest` round-trip 3건, `ServiceLimitTest` 2건) + 기존 회귀 그린.
+
+> 후속(이번 범위 아님): Colab `sk-dku-` 제거 = **포털 발급 Colab 토큰**(SOLID 로그인 후 포털에서
+> Colab 전용 토큰 발급→Colab Secret). AccessPolicy 실제 시행·Named Tunnel(Cloudflare 계정·도메인 후).
+
+### 통합 AgentRegistry — 인바운드/아웃바운드 수렴 (2026-07-03, M1)
+
+미팅 피드백("Relay·Agent 관점에서 둘은 같다 — 단일 솔루션") 반영 1단계.
+설계: [unified-agent-design.md](unified-agent-design.md).
+
+- [x] **통합 도메인 모델** — `Agent`(+`AgentLocation`: SOLID_VM/COLAB/EXTERNAL, `AgentService`).
+  인바운드/아웃바운드 구분이 스키마에서 사라지고 위치 속성이 됨. 외부 Agent는 서비스 1:1
+  (`services[0]`), SOLID_VM 서비스는 M2까지 ServiceRegistry 유지.
+- [x] **단일 `AgentRegistry`** — 구 `VmAgentRegistry`+`ExternalResourceRegistry` 삭제,
+  하나의 맵으로 수렴. 검증은 위치 확인 포함(`validateVm`/`validateExternal` — 교차 토큰 차단).
+- [x] **완전 호환** — API 경로·응답, 토큰 접두사(`at-`/`rat-`), store 파일 2개
+  (`agent.store.file`/`resource.store.file`) 포맷 그대로. 배포된 에이전트·데이터 마이그레이션 불필요.
+- [x] 전체 테스트 그린 (기존 15개 테스트 클래스, 코드 수정은 TunnelingPersistenceTest의
+  클래스명 교체뿐).
+
+> 후속: M2(포털 통합 AgentList API + 저장 포맷 단일화), M3(단일 agent CLI),
+> M4(자체 터널: WebSocket 멀티플렉싱).
+
+### 실시간 지표 API `/api/metrics` (2026-07-03, §8.1 1단계)
+
+- [x] **`GET /api/metrics`** (SOLID 인증) — Relay 업타임, Agent 총/온라인 수 + **위치별 분포**
+  (SOLID_VM/COLAB/EXTERNAL — 통합 모델이라 집계가 한 곳에서 나옴), 서비스 총/공개 수,
+  DNS 레코드·아웃바운드 연결·Colab 세션 수, JVM 메모리/CPU 코어.
+- [x] 테스트 `MetricsApiTest` 3건(인증 필수, 집계 형태, 외부 Agent 등록 시 COLAB 카운트 증가).
+- [ ] 후속: 포털 지표 탭 UI(디자인 시스템 이후), 처리율·open 전파 지연 계측(§8.2 벤치마크), Actuator 연동.
+
+### 자체 구현 DNS 응답기 (2026-07-08, §9 — 외부/오픈소스 DNS 미사용)
+
+교수님 방침(직접 구현) 반영. dnsmasq·CoreDNS 없이 RFC 1035를 직접 구현한
+`solid.internal` 존 권한(authoritative) 서버.
+
+- [x] **`DnsCodec`** — RFC 1035 최소 코덱 직접 구현(질문 파싱, 응답 인코딩,
+  answer name은 0xC00C 포인터 압축). 외부 라이브러리 없음.
+- [x] **`DnsUdpServer`** — UDP 리스너. `DnsRecordRegistry`를 zone 데이터로 **직접**
+  서빙(CoreDNS 동기화 불필요 — 자족형): A 응답, CNAME+존 내 A 체이닝, NXDOMAIN,
+  타입 불일치 NODATA. 존 밖 질의는 `dns.server.upstream` 스텁 포워딩(미설정 시 REFUSED)
+  — VM이 이 서버를 유일한 리졸버로 지정해도 일반 인터넷 질의 동작.
+- [x] **기본 꺼짐** — `dns.server.enabled=false`(Railway 등 UDP 불가 환경 안전).
+  DNS Server VM에서 `enabled=true, port=53`으로 활성.
+- [x] **와일드카드** — 정확 일치 없으면 왼쪽 라벨을 `*`로 재조회(`x.web`→`*.web`).
+  API로 `*.x` 생성 허용(자기 서브트리만), 루트 `*`는 차단(존 전체 선점 방지).
+  자체 터널 서브도메인 결합 준비 완료.
+- [x] **워커 풀** — 수신 루프는 단일 스레드, 처리·응답은 `dns.server.workers`(기본 4)
+  풀에서. 상위 포워딩(2초 타임아웃)이 존 내 응답을 막지 않음.
+- [x] **`deploy/dns/` 갱신** — 자체 응답기 방식을 권장 절차로 문서화
+  (CoreDNS·zone 파일·dns-agent.py 불필요). CoreDNS 절차는 대안으로 보존.
+- [x] 테스트 `DnsUdpServerTest` 7건 — 실제 UDP 소켓으로 질의: A 해석, NXDOMAIN,
+  CNAME 체이닝, 존 밖 REFUSED, NODATA, 와일드카드 매칭, 루트 `*` 생성 거부.
+- [ ] 후속: DNS Server VM 실배포 검증(53 바인드·스플릿 DNS), TCP 폴백(512B 초과 응답 시).
 
 ## 다음 단계
 

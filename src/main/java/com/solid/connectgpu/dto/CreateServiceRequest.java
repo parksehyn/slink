@@ -8,8 +8,7 @@ import java.util.List;
 
 public record CreateServiceRequest(
         String name,
-        String instanceId,
-        String privateIp,
+        String instanceId,           // 사설 IP는 서버가 CloudStack(vmId)에서 채운다 (수동 입력 X)
         int localPort,
         Protocol protocol,
         ServiceScope scope,

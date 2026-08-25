@@ -104,16 +104,20 @@
 <!-- 로그인 폼 -->
 <div class="container" id="login-section">
   <div class="card" style="max-width:420px;margin:0 auto">
-    <h2>API Key 로그인</h2>
+    <h2>SOLID 로그인</h2>
     <p style="font-size:13px;color:#64748b;margin-bottom:16px">
-      <code>slink init</code> 으로 발급받은 API Key를 입력하세요.
+      SOLID(CloudStack) 계정으로 로그인합니다. VM·DNS는 이 인증으로 관리됩니다.
     </p>
-    <label for="api-base">Relay 주소 <span style="color:#94a3b8">(비우면 현재 서버)</span></label>
-    <input type="text" id="api-base" placeholder="http://10.0.10.20:8081" autocomplete="off">
-    <label for="api-key">API Key</label>
-    <input type="password" id="api-key" placeholder="sk-dku-..." autocomplete="off">
+    <label for="login-username">학번 / 계정</label>
+    <input type="text" id="login-username" placeholder="32211690" autocomplete="username">
+    <label for="login-password">비밀번호</label>
+    <input type="password" id="login-password" placeholder="••••••••" autocomplete="current-password"
+           onkeydown="if(event.key==='Enter')doLogin()">
+    <label for="login-domain">도메인 <span style="color:#94a3b8">(선택)</span></label>
+    <input type="text" id="login-domain" placeholder="SW" autocomplete="off"
+           onkeydown="if(event.key==='Enter')doLogin()">
     <button class="btn btn-primary" onclick="doLogin()" style="width:100%">로그인</button>
-    <p id="error">API Key가 올바르지 않습니다.</p>
+    <p id="error">로그인에 실패했습니다. 자격 증명을 확인하세요.</p>
   </div>
 </div>
 
@@ -129,8 +133,9 @@
   <!-- ░░░ DNS 탭 ░░░ -->
   <div id="tab-dns" style="display:none">
     <div class="solid-note">
-      내부 DNS 레코드는 현재 <strong>모의(Mock)</strong> 입니다. 실제 해석은 <code>.solid.internal</code> 존 관리 권한 확보 후 동작합니다.
-      값(VM 사설 IP)은 SOLID(CloudStack)에서 받아옵니다(현재 샘플).
+      A 레코드는 <strong>VM을 선택</strong>하면 서버가 SOLID(CloudStack)에서 사설 IP를 조회·소유권을 검증해 채웁니다.
+      <code>.solid.internal</code> 존 반영은 DNS Server의 CoreDNS가 담당합니다
+      (<code>dns.zone.file</code> 미설정 시 모의).
     </div>
 
     <!-- 관리형 존 헤더 (Google Cloud DNS 스타일) -->
@@ -199,26 +204,60 @@
 
   <!-- ░░░ 터널링 탭 ░░░ -->
   <div id="tab-tunnel" style="display:none">
+    <div class="solid-note">
+      서비스·외부 연결 등록은 <strong>SOLID 인증</strong>으로 동작합니다(소유자=학번). 인바운드 서비스는 <strong>VM을 선택</strong>하면
+      서버가 SOLID(CloudStack)에서 사설 IP·소유권을 채웁니다. 외부 접근 차단 시행(Cloudflare Access)은 <span class="planned">시행 예정</span>입니다.
+    </div>
     <div class="solid-seg">
-      <button id="segbtn-outbound" onclick="showMode('outbound')">아웃바운드 (외부 → 접근)</button>
+      <button id="segbtn-outbound" onclick="showMode('outbound')">외부 자원 연결</button>
       <button id="segbtn-inbound" onclick="showMode('inbound')">인바운드 (외부 ← SOLID 공개)</button>
     </div>
 
     <!-- 아웃바운드: 외부가 연 터널을 등록해 SOLID가 접근 -->
     <div id="mode-outbound" style="display:none">
       <div class="solid-note">
-        외부 서비스(예: Colab)가 터널을 열어 발급한 주소를 등록해 두면 SOLID에서 그 주소로 접근합니다.
-        Colab GPU는 <code>slink connect</code> 흐름이 그대로 동작합니다.
+        외부 환경(Colab GPU·연구실 GPU·Jupyter·HTTP)의 에이전트가 터널을 열면 SOLID에서 그 자원에 접근합니다.
+        <strong>외부 자원 추가</strong>로 등록 토큰을 발급받아 외부에서 에이전트를 한 번 실행하면,
+        상태·URL·만료가 아래에 자동으로 표시됩니다.
       </div>
 
-      <div class="readonly-card" id="colab-card" style="display:none">
-        <strong>현재 Colab 세션</strong> (slink, 읽기 전용)<br>
-        <span id="colab-url"></span>
-      </div>
-
+      <!-- 외부 자원 추가 위저드 + 라이브 목록 -->
       <div class="card solid-card-compact solid-table-wrap">
         <div class="toolbar">
-          <h2 style="margin:0">외부 연결</h2>
+          <h2 style="margin:0">외부 자원</h2>
+          <button class="btn btn-primary btn-sm" onclick="toggleResForm(true)">+ 외부 자원 추가</button>
+        </div>
+
+        <div class="solid-inline-form" id="res-form" style="display:none">
+          <div class="form-row">
+            <div class="form-group">
+              <label for="res-type">자원 유형</label>
+              <select id="res-type">
+                <option value="COLAB_GPU">Colab GPU</option>
+                <option value="JUPYTER">외부 Jupyter</option>
+                <option value="HTTP_API">HTTP · API</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="res-name">이름</label>
+              <input id="res-name" type="text" placeholder="colab-gpu" autocomplete="off">
+            </div>
+          </div>
+          <div style="display:flex;gap:10px;margin-top:6px">
+            <button class="btn btn-primary" onclick="issueResToken()">등록 토큰 발급</button>
+            <button class="btn btn-outline" onclick="toggleResForm(false)">취소</button>
+          </div>
+          <p class="form-error" id="res-error"></p>
+          <div id="res-token-box" style="display:none;margin-top:10px"></div>
+        </div>
+
+        <div id="res-list"><p class="empty">로딩 중…</p></div>
+      </div>
+
+      <!-- 수동 북마크 (URL만 저장하는 기존 기능) -->
+      <div class="card solid-card-compact solid-table-wrap">
+        <div class="toolbar">
+          <h2 style="margin:0">수동 북마크 <span style="font-size:12px;color:#94a3b8;font-weight:400">(URL만 저장)</span></h2>
           <button class="btn btn-primary btn-sm" onclick="toggleConnForm(true)">+ 연결 추가</button>
         </div>
 
@@ -284,17 +323,17 @@
             <p class="hint">소문자·숫자·하이픈만 (예: team-demo, api-v1)</p>
           </div>
           <div class="form-group">
-            <label for="svc-vm">VM에서 선택 <span style="color:#94a3b8">(인스턴스·사설 IP 자동 입력)</span></label>
-            <select id="svc-vm" onchange="onSvcVmChange()"><option value="">— 직접 입력 —</option></select>
+            <label for="svc-vm">VM 선택 <span style="color:#94a3b8">(인스턴스·사설 IP 자동 입력)</span></label>
+            <select id="svc-vm" onchange="onSvcVmChange()"><option value="">— 선택 —</option></select>
           </div>
           <div class="form-row">
             <div class="form-group">
-              <label for="svc-instance">인스턴스 ID</label>
-              <input id="svc-instance" type="text" placeholder="solid-32211690" autocomplete="off">
+              <label for="svc-instance">인스턴스 ID <span style="color:#94a3b8">(자동)</span></label>
+              <input id="svc-instance" type="text" placeholder="VM 선택 시 자동" autocomplete="off" readonly>
             </div>
             <div class="form-group">
-              <label for="svc-ip">VM 사설 IP</label>
-              <input id="svc-ip" type="text" placeholder="10.0.10.89" autocomplete="off">
+              <label for="svc-ip">VM 사설 IP <span style="color:#94a3b8">(서버가 채움)</span></label>
+              <input id="svc-ip" type="text" placeholder="VM 선택 시 자동" autocomplete="off" readonly>
             </div>
           </div>
           <div class="form-row">
@@ -350,7 +389,6 @@
 <script>
 // ── 인증 / 진입 ──────────────────────────────────────────────────────────────
 async function init() {
-    document.getElementById('api-base').value = getApiBase();
     if (getApiKey()) {
         const ok = await requireAuth();
         if (ok) showMain();
@@ -358,13 +396,18 @@ async function init() {
 }
 
 async function doLogin() {
-    const key = document.getElementById('api-key').value.trim();
-    if (!key) return;
-    setApiBase(document.getElementById('api-base').value);
-    const res = await fetch(apiUrl('/api/users/me'), { headers: { Authorization: 'Bearer ' + key } });
+    const username = document.getElementById('login-username').value.trim();
+    const password = document.getElementById('login-password').value;
+    const domain = document.getElementById('login-domain').value.trim();
+    if (!username || !password) return;
+    const res = await fetch(apiUrl('/api/auth/login'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password, domain })
+    });
     if (!res.ok) { document.getElementById('error').style.display = 'block'; return; }
-    const user = await res.json();
-    setAuth(key, user.email);
+    const data = await res.json();
+    setAuth(data.token, data.account);
     showMain();
 }
 
@@ -399,7 +442,7 @@ function showMode(mode) {
     document.getElementById('segbtn-outbound').classList.toggle('active', !inbound);
     location.hash = 'tunnel/' + mode;
     if (inbound) loadServices();
-    else { loadConnections(); loadColabSession(); }
+    else { loadResources(); loadConnections(); }
 }
 
 // ── DNS ───────────────────────────────────────────────────────────────────────
@@ -436,17 +479,18 @@ async function loadDnsRecords() {
     const rows = dnsRecords.map(r => `
       <tr>
         <td>${dnsTypeBadge(r.type)}</td>
-        <td><code>${escapeHtml(fqdnToHost(r.name))}</code></td>
-        <td><code>${escapeHtml(r.value)}</code></td>
+        <td><code>${escapeHtml(r.fqdn || r.name)}</code></td>
+        <td><code>${escapeHtml(r.value)}</code>${r.vmName ? ` <span style="color:#94a3b8;font-size:12px">(${escapeHtml(r.vmName)})</span>` : ''}</td>
+        <td>${dnsStatusBadge(r.status)}</td>
         <td>${ttlLabel(r.ttl)}</td>
         <td>
           <button class="btn btn-outline btn-sm" onclick="editDnsRecord('${r.id}')">수정</button>
-          <button class="btn btn-outline btn-sm" onclick="deleteDnsRecord('${r.id}','${encodeURIComponent(r.name)}')">삭제</button>
+          <button class="btn btn-outline btn-sm" onclick="deleteDnsRecord('${r.id}','${escapeHtml(r.fqdn || r.name)}')">삭제</button>
         </td>
       </tr>`).join('');
     el.innerHTML = `
       <table>
-        <thead><tr><th>타입</th><th>호스트</th><th>값</th><th>TTL</th><th></th></tr></thead>
+        <thead><tr><th>타입</th><th>호스트</th><th>값</th><th>상태</th><th>TTL</th><th></th></tr></thead>
         <tbody>${rows}</tbody>
       </table>`;
 }
@@ -467,7 +511,7 @@ async function toggleDnsForm(show) {
     }
 }
 
-function editDnsRecord(id) {
+async function editDnsRecord(id) {
     const r = dnsRecords.find(x => x.id === id);
     if (!r) return;
     dnsEditId = id;
@@ -475,43 +519,66 @@ function editDnsRecord(id) {
     document.getElementById('dns-add-btn').style.display = 'none';
     document.getElementById('dns-error').style.display = 'none';
     document.getElementById('dns-type').value = r.type;
-    document.getElementById('dns-name').value = fqdnToHost(r.name);
-    document.getElementById('dns-value').value = r.value;
+    document.getElementById('dns-name').value = (r.name === '@') ? '' : r.name;
     document.getElementById('dns-ttl').value = String(r.ttl);
     onDnsTypeChange();
-    populateVmSelect('dns-vm');
+    await populateVmSelect('dns-vm');
+    if (r.type === 'A' && r.vmId) document.getElementById('dns-vm').value = r.vmId;
+    document.getElementById('dns-value').value = r.value || '';
     document.getElementById('dns-submit-btn').textContent = '수정 저장';
 }
 
 function onDnsTypeChange() {
     const isA = document.getElementById('dns-type').value === 'A';
+    const val = document.getElementById('dns-value');
     document.getElementById('dns-vm-group').style.display = isA ? 'block' : 'none';
-    document.getElementById('dns-value-label').textContent = isA ? '값 (VM 사설 IP)' : '값 (대상 호스트)';
-    document.getElementById('dns-value').placeholder = isA ? '10.0.10.11' : 'web.solid.internal';
+    document.getElementById('dns-value-label').textContent = isA ? '값 (VM 사설 IP · 자동)' : '값 (대상 호스트)';
+    val.placeholder = isA ? 'VM 선택 시 자동 입력' : 'web.solid.internal';
+    val.readOnly = isA;          // A는 서버가 vmId로 IP를 채움 → 읽기 전용
+    if (isA && !dnsEditId) val.value = '';
 }
 
 function onDnsVmChange() {
-    const ip = document.getElementById('dns-vm').value;
-    if (ip) document.getElementById('dns-value').value = ip;
+    const sel = document.getElementById('dns-vm');
+    const opt = sel.options[sel.selectedIndex];
+    document.getElementById('dns-value').value = (opt && opt.dataset.ip) ? opt.dataset.ip : '';
+}
+
+async function dnsErrMsg(res) {
+    try { const j = await res.json(); return (j && j.error && j.error.message) || ('오류 ' + res.status); }
+    catch (e) { return '오류 ' + res.status; }
+}
+function showDnsError(msg) {
+    const err = document.getElementById('dns-error');
+    err.textContent = msg || 'DNS 레코드 저장 실패';
+    err.style.display = 'block';
 }
 
 async function submitDnsRecord() {
     const type = document.getElementById('dns-type').value;
-    const name = hostToFqdn(document.getElementById('dns-name').value);
-    const value = document.getElementById('dns-value').value.trim();
+    const name = document.getElementById('dns-name').value.trim();  // 짧은 라벨(서버가 정규화)
     const ttl = parseInt(document.getElementById('dns-ttl').value) || 3600;
-    const err = document.getElementById('dns-error');
-    err.style.display = 'none';
-    const body = JSON.stringify({ type, name, value, ttl });
+    document.getElementById('dns-error').style.display = 'none';
+
+    let payload;
+    if (type === 'A') {
+        const vmId = document.getElementById('dns-vm').value;
+        if (!dnsEditId && !vmId) { showDnsError('VM을 선택하세요. A 레코드는 VM에서 사설 IP를 가져옵니다.'); return; }
+        payload = vmId ? { type, name, vmId, ttl } : { type, name, ttl };
+    } else {
+        const value = document.getElementById('dns-value').value.trim();
+        payload = { type, name, value, ttl };
+    }
+    const body = JSON.stringify(payload);
     const res = dnsEditId
         ? await apiFetch('/api/dns/records/' + dnsEditId, { method: 'PATCH', body })
         : await apiFetch('/api/dns/records', { method: 'POST', body });
     if (res.ok) { toggleDnsForm(false); loadDnsRecords(); }
-    else { err.textContent = (await res.text()) || 'DNS 레코드 저장 실패'; err.style.display = 'block'; }
+    else { showDnsError(await dnsErrMsg(res)); }
 }
 
-async function deleteDnsRecord(id, name) {
-    if (!confirm(`DNS 레코드 "${fqdnToHost(decodeURIComponent(name))}" 를 삭제할까요?`)) return;
+async function deleteDnsRecord(id, label) {
+    if (!confirm(`DNS 레코드 "${label}" 를 삭제할까요?`)) return;
     const res = await apiFetch('/api/dns/records/' + id, { method: 'DELETE' });
     if (res.ok) loadDnsRecords();
 }
@@ -563,8 +630,8 @@ function onSvcVmChange() {
     const sel = document.getElementById('svc-vm');
     const opt = sel.options[sel.selectedIndex];
     if (!opt || !opt.value) return;
-    document.getElementById('svc-instance').value = opt.dataset.instance || '';
-    document.getElementById('svc-ip').value = opt.value;
+    document.getElementById('svc-instance').value = opt.value;        // instanceId
+    document.getElementById('svc-ip').value = opt.dataset.ip || '';   // 사설 IP
 }
 
 function onAccessPolicyChange() {
@@ -574,8 +641,7 @@ function onAccessPolicyChange() {
 
 async function submitService() {
     const name = document.getElementById('svc-name').value.trim();
-    const instanceId = document.getElementById('svc-instance').value.trim();
-    const privateIp = document.getElementById('svc-ip').value.trim();
+    const instanceId = document.getElementById('svc-instance').value.trim();  // VM 선택으로 채워짐
     const localPort = parseInt(document.getElementById('svc-port').value);
     const protocol = document.getElementById('svc-protocol').value;
     const scope = document.getElementById('svc-scope').value;
@@ -584,9 +650,11 @@ async function submitService() {
         .split(/[,\n]/).map(s => s.trim()).filter(Boolean);
     const err = document.getElementById('svc-error');
     err.style.display = 'none';
+    if (!instanceId) { err.textContent = 'VM을 선택하세요. 사설 IP는 서버가 채웁니다.'; err.style.display = 'block'; return; }
+    // 사설 IP는 서버가 instanceId로 CloudStack에서 채운다(수동 전송 X).
     const res = await apiFetch('/api/services', {
         method: 'POST',
-        body: JSON.stringify({ name, instanceId, privateIp, localPort, protocol, scope, accessPolicy, allowedEmails })
+        body: JSON.stringify({ name, instanceId, localPort, protocol, scope, accessPolicy, allowedEmails })
     });
     if (res.ok) { toggleSvcForm(false); loadServices(); }
     else { err.textContent = (await res.text()) || '서비스 생성 실패'; err.style.display = 'block'; }
@@ -651,26 +719,131 @@ async function deleteConnection(id, name) {
     if (res.ok) loadConnections();
 }
 
-async function loadColabSession() {
-    const email = getEmail();
-    const card = document.getElementById('colab-card');
-    if (!email) { card.style.display = 'none'; return; }
-    const res = await apiFetch('/api/session/by-owner/' + encodeURIComponent(email));
-    if (!res.ok) { card.style.display = 'none'; return; }
-    const s = await res.json();
-    if (!s || !s.ngrokHost) { card.style.display = 'none'; return; }
-    card.style.display = 'block';
-    document.getElementById('colab-url').innerHTML =
-        `<a href="${escapeHtml(s.ngrokHost)}" target="_blank">${escapeHtml(s.ngrokHost)}</a> · VM에서 <code>slink connect</code>`;
+// ── 외부 자원 연결 (라이브, 에이전트 기반) ──────────────────────────────────────
+function resStatusBadge(status) {
+    const map = {
+        PENDING: ['대기', '#92400e', '#fef3c7', '#fcd34d'],
+        ACTIVE:  ['연결됨', '#065f46', '#d1fae5', '#6ee7b7'],
+        STALE:   ['불안정', '#9a3412', '#ffedd5', '#fdba74'],
+        EXPIRED: ['만료', '#475569', '#f1f5f9', '#cbd5e1'],
+        STOPPED: ['중지', '#991b1b', '#fee2e2', '#fca5a5'],
+    };
+    const [label, fg, bg, bd] = map[status] || [status, '#475569', '#f1f5f9', '#cbd5e1'];
+    return `<span style="display:inline-block;font-size:11px;font-weight:600;color:${fg};`
+        + `background:${bg};border:1px solid ${bd};border-radius:4px;padding:1px 7px">${label}</span>`;
+}
+
+async function loadResources() {
+    const res = await apiFetch('/api/resources');
+    const list = await res.json();
+    const el = document.getElementById('res-list');
+    if (!list.length) {
+        el.innerHTML = '<p class="empty">등록된 외부 자원이 없습니다. "외부 자원 추가"로 시작하세요.</p>';
+        return;
+    }
+    const rows = list.map(r => {
+        const urlCell = r.publicUrl
+            ? `<a href="${escapeHtml(r.publicUrl)}" target="_blank" rel="noopener">${escapeHtml(r.publicUrl)}</a>`
+            : '<span style="color:#94a3b8">—</span>';
+        const exp = r.expiresAt ? formatExpiry(r.expiresAt) : '—';
+        const connectBtn = (r.resourceType === 'HTTP_API')
+            ? (r.publicUrl ? `<a class="btn btn-outline btn-sm" href="${escapeHtml(r.publicUrl)}" target="_blank" rel="noopener">열기</a>` : '')
+            : `<button class="btn btn-outline btn-sm" onclick="connectResource('${r.id}')">연결</button>`;
+        return `
+      <tr>
+        <td>${escapeHtml(r.name)}</td>
+        <td><span class="type-badge">${escapeHtml(r.resourceType)}</span></td>
+        <td>${resStatusBadge(r.status)}</td>
+        <td>${urlCell}</td>
+        <td>${exp}</td>
+        <td>${connectBtn}
+            <button class="btn btn-outline btn-sm" onclick="deleteResource('${r.id}','${encodeURIComponent(r.name)}')">삭제</button></td>
+      </tr>`;
+    }).join('');
+    el.innerHTML = `
+      <table>
+        <thead><tr><th>이름</th><th>유형</th><th>상태</th><th>URL</th><th>만료</th><th></th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+}
+
+function toggleResForm(show) {
+    document.getElementById('res-form').style.display = show ? 'block' : 'none';
+    if (show) {
+        document.getElementById('res-error').style.display = 'none';
+        document.getElementById('res-token-box').style.display = 'none';
+        document.getElementById('res-name').value = '';
+        document.getElementById('res-type').value = 'COLAB_GPU';
+    }
+}
+
+async function issueResToken() {
+    const resourceType = document.getElementById('res-type').value;
+    const name = document.getElementById('res-name').value.trim();
+    const err = document.getElementById('res-error');
+    err.style.display = 'none';
+    if (!name) { err.textContent = '이름을 입력하세요.'; err.style.display = 'block'; return; }
+    const res = await apiFetch('/api/resources/registration-token', {
+        method: 'POST', body: JSON.stringify({ resourceType, name })
+    });
+    if (!res.ok) { err.textContent = (await res.text()) || '발급 실패'; err.style.display = 'block'; return; }
+    const data = await res.json();
+    showResToken(data.token, resourceType);
+    loadResources();
+}
+
+function showResToken(rt, type) {
+    const relay = location.origin;
+    let snippet;
+    if (type === 'COLAB_GPU') {
+        snippet = `!pip -q install slink-agent\nimport os\n`
+            + `os.environ['SLINK_RELAY']='${relay}'\n`
+            + `os.environ['SLINK_REG_TOKEN']='${rt}'\n`
+            + `os.environ['SLINK_RESOURCE_TYPE']='COLAB_GPU'\n!slink-agent`;
+    } else {
+        const port = type === 'JUPYTER' ? '8888' : '8000';
+        snippet = `pip install slink-agent\n`
+            + `SLINK_RELAY=${relay} SLINK_REG_TOKEN=${rt} SLINK_RESOURCE_TYPE=${type} SLINK_LOCAL_PORT=${port} slink-agent`;
+    }
+    const where = type === 'COLAB_GPU' ? 'Colab 셀' : '외부 환경 터미널';
+    const box = document.getElementById('res-token-box');
+    box.style.display = 'block';
+    box.innerHTML = `
+      <div class="readonly-card">
+        <strong>등록 토큰 발급됨</strong> (10분 단일 사용) — 아래를 ${where}에서 1회 실행하세요.
+        <pre id="res-snippet" style="white-space:pre-wrap;word-break:break-all;background:#0f172a;color:#e2e8f0;`
+        + `padding:10px;border-radius:6px;margin:8px 0;font-size:12px">${escapeHtml(snippet)}</pre>
+        <button class="btn btn-outline btn-sm" onclick="copyResSnippet()">복사</button>
+      </div>`;
+}
+
+function copyResSnippet() {
+    const pre = document.getElementById('res-snippet');
+    if (pre) navigator.clipboard.writeText(pre.textContent);
+}
+
+async function connectResource(id) {
+    const res = await apiFetch('/api/resources/' + id);
+    if (!res.ok) { alert('자원을 불러오지 못했습니다.'); return; }
+    const r = await res.json();
+    const cmd = 'slink connect --resource ' + id;
+    alert(`SOLID VM에서 실행:\n\n${cmd}\n\nURL: ${r.publicUrl || '(대기 중)'}`
+        + (r.serviceToken ? `\n토큰: ${r.serviceToken}` : ''));
+}
+
+async function deleteResource(id, name) {
+    if (!confirm(`외부 자원 "${decodeURIComponent(name)}" 를 삭제할까요?`)) return;
+    const res = await apiFetch('/api/resources/' + id, { method: 'DELETE' });
+    if (res.ok) loadResources();
 }
 
 // ── 공통: VM 드롭다운 채우기 ────────────────────────────────────────────────
 async function populateVmSelect(selectId) {
     const sel = document.getElementById(selectId);
     const vms = await fetchVms();
-    sel.innerHTML = '<option value="">— 직접 입력 —</option>' + vms.map(v =>
-        `<option value="${escapeHtml(v.privateIp)}" data-instance="${escapeHtml(v.instanceId)}">`
-        + `${escapeHtml(v.instanceId)} · ${escapeHtml(v.privateIp)} (${escapeHtml(v.state)})</option>`).join('');
+    sel.innerHTML = '<option value="">— 선택 —</option>' + vms.map(v =>
+        `<option value="${escapeHtml(v.instanceId)}" data-ip="${escapeHtml(v.privateIp)}" data-name="${escapeHtml(v.displayName || '')}">`
+        + `${escapeHtml(v.displayName || v.instanceId)} · ${escapeHtml(v.privateIp)} (${escapeHtml(v.state)})</option>`).join('');
 }
 
 init();

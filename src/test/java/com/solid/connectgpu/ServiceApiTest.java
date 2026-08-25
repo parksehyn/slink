@@ -14,41 +14,59 @@ import static org.hamcrest.Matchers.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+/**
+ * 인바운드 서비스 API 테스트. 인증은 SOLID 세션 토큰(slk-, /api/auth/login),
+ * 서비스는 vmId(instanceId)로 만들며 사설 IP·소유권은 서버가 CloudStack(Mock)에서 채운다.
+ */
 @SpringBootTest
 class ServiceApiTest {
 
     @Autowired WebApplicationContext context;
     MockMvc mvc;
-    String email;
-    String apiKey;
+    String token;
+    String vmId;   // 이 사용자가 소유한 첫 VM (Mock: solid-{학번})
 
     @BeforeEach
     void setup() throws Exception {
         mvc = MockMvcBuilders.webAppContextSetup(context).build();
         long ts = System.nanoTime();
-        email = "svc-test-" + ts + "@dankook.ac.kr";
-        String studentId = "A" + Math.abs(ts % 10_000_000L);
-        String regJson = mvc.perform(post("/api/users/register")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"studentId\":\"" + studentId + "\",\"email\":\"" + email + "\"}"))
-                .andReturn().getResponse().getContentAsString();
-        apiKey = JsonPath.read(regJson, "$.apiKey");
+        String username = String.valueOf(10_000_000L + Math.abs(ts % 80_000_000L));
+        token = login(username);
+        vmId = firstVmId();
     }
 
-    private String createJson(String name) {
+    private String login(String username) throws Exception {
+        String json = mvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"" + username + "\",\"password\":\"pw\"}"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        return JsonPath.read(json, "$.token");
+    }
+
+    private String firstVmId() throws Exception {
+        String json = mvc.perform(get("/api/vms").header("Authorization", "Bearer " + token))
+                .andReturn().getResponse().getContentAsString();
+        return JsonPath.read(json, "$[0].instanceId");
+    }
+
+    private String hostname(String name) {
+        return name + "." + vmId + ".solid.internal";
+    }
+
+    private String createJson(String name, String instanceId, String scope) {
         return "{\"name\":\"" + name + "\","
-                + "\"instanceId\":\"solid-32211690\","
-                + "\"privateIp\":\"10.0.10.99\","
+                + "\"instanceId\":\"" + instanceId + "\","
                 + "\"localPort\":3000,"
                 + "\"protocol\":\"HTTP\","
-                + "\"scope\":\"INTERNAL\"}";
+                + "\"scope\":\"" + scope + "\"}";
     }
 
     private String createService(String name) throws Exception {
         return mvc.perform(post("/api/services")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(createJson(name))
-                        .header("Authorization", "Bearer " + apiKey))
+                        .content(createJson(name, vmId, "INTERNAL"))
+                        .header("Authorization", "Bearer " + token))
                 .andReturn().getResponse().getContentAsString();
     }
 
@@ -60,15 +78,24 @@ class ServiceApiTest {
     void create_returnsServiceWithId() throws Exception {
         mvc.perform(post("/api/services")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(createJson("my-api"))
-                        .header("Authorization", "Bearer " + apiKey))
+                        .content(createJson("my-api", vmId, "INTERNAL"))
+                        .header("Authorization", "Bearer " + token))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.id").isNotEmpty())
                 .andExpect(jsonPath("$.name").value("my-api"))
                 .andExpect(jsonPath("$.scope").value("INTERNAL"))
                 .andExpect(jsonPath("$.pendingCommand").value("NONE"))
-                .andExpect(jsonPath("$.internalHostname")
-                        .value("my-api.solid-32211690.solid.internal"));
+                .andExpect(jsonPath("$.privateIp").value(startsWith("10.")))  // 서버가 CloudStack에서 채움
+                .andExpect(jsonPath("$.internalHostname").value(hostname("my-api")));
+    }
+
+    @Test
+    void create_unknownVm_returns400() throws Exception {
+        mvc.perform(post("/api/services")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(createJson("ghost", "solid-does-not-exist", "INTERNAL"))
+                        .header("Authorization", "Bearer " + token))
+                .andExpect(status().isBadRequest());
     }
 
     @Test
@@ -76,7 +103,7 @@ class ServiceApiTest {
         createService("svc-list-a");
         createService("svc-list-b");
 
-        mvc.perform(get("/api/services").header("Authorization", "Bearer " + apiKey))
+        mvc.perform(get("/api/services").header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[*].name", hasItems("svc-list-a", "svc-list-b")));
     }
@@ -85,14 +112,14 @@ class ServiceApiTest {
     void get_existingService_returnsDetail() throws Exception {
         String id = idOf(createService("get-test"));
 
-        mvc.perform(get("/api/services/" + id).header("Authorization", "Bearer " + apiKey))
+        mvc.perform(get("/api/services/" + id).header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.name").value("get-test"));
     }
 
     @Test
     void get_nonExistent_returns404() throws Exception {
-        mvc.perform(get("/api/services/does-not-exist").header("Authorization", "Bearer " + apiKey))
+        mvc.perform(get("/api/services/does-not-exist").header("Authorization", "Bearer " + token))
                 .andExpect(status().isNotFound());
     }
 
@@ -103,7 +130,7 @@ class ServiceApiTest {
         mvc.perform(patch("/api/services/" + id)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"update-after\"}")
-                        .header("Authorization", "Bearer " + apiKey))
+                        .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.name").value("update-after"));
     }
@@ -114,21 +141,18 @@ class ServiceApiTest {
 
         mvc.perform(post("/api/services")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(createJson("dup-name"))
-                        .header("Authorization", "Bearer " + apiKey))
+                        .content(createJson("dup-name", vmId, "INTERNAL"))
+                        .header("Authorization", "Bearer " + token))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().string(containsString("already in use")));
     }
 
     @Test
     void create_invalidName_returns400() throws Exception {
-        String badJson = "{\"name\":\"INVALID NAME!\","
-                + "\"instanceId\":\"solid-01\",\"privateIp\":\"10.0.0.1\","
-                + "\"localPort\":8080,\"protocol\":\"HTTP\",\"scope\":\"PRIVATE\"}";
-
         mvc.perform(post("/api/services")
-                        .contentType(MediaType.APPLICATION_JSON).content(badJson)
-                        .header("Authorization", "Bearer " + apiKey))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(createJson("INVALID NAME!", vmId, "PRIVATE"))
+                        .header("Authorization", "Bearer " + token))
                 .andExpect(status().isBadRequest());
     }
 
@@ -142,7 +166,7 @@ class ServiceApiTest {
         mvc.perform(post("/api/services/" + id + "/publish")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"ttlHours\":4}")
-                        .header("Authorization", "Bearer " + apiKey))
+                        .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("PENDING"))
                 .andExpect(jsonPath("$.pendingCommand").value("OPEN_TUNNEL"))
@@ -159,10 +183,10 @@ class ServiceApiTest {
         mvc.perform(post("/api/services/" + id + "/publish")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"ttlHours\":2}")
-                .header("Authorization", "Bearer " + apiKey));
+                .header("Authorization", "Bearer " + token));
 
         mvc.perform(delete("/api/services/" + id + "/publish")
-                        .header("Authorization", "Bearer " + apiKey))
+                        .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.pendingCommand").value("NONE"))
                 .andExpect(jsonPath("$.status").value("UNKNOWN"))
@@ -175,10 +199,10 @@ class ServiceApiTest {
     void delete_thenNotFound() throws Exception {
         String id = idOf(createService("delete-me"));
 
-        mvc.perform(delete("/api/services/" + id).header("Authorization", "Bearer " + apiKey))
+        mvc.perform(delete("/api/services/" + id).header("Authorization", "Bearer " + token))
                 .andExpect(status().isNoContent());
 
-        mvc.perform(get("/api/services/" + id).header("Authorization", "Bearer " + apiKey))
+        mvc.perform(get("/api/services/" + id).header("Authorization", "Bearer " + token))
                 .andExpect(status().isNotFound());
     }
 
@@ -191,23 +215,19 @@ class ServiceApiTest {
     @Test
     void otherUsersService_notVisible() throws Exception {
         long ts = System.nanoTime();
-        String otherEmail = "other-" + ts + "@dankook.ac.kr";
-        String otherRegJson = mvc.perform(post("/api/users/register")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"studentId\":\"O" + Math.abs(ts % 10_000_000L) + "\",\"email\":\"" + otherEmail + "\"}"))
-                .andReturn().getResponse().getContentAsString();
-        String otherKey = JsonPath.read(otherRegJson, "$.apiKey");
+        String otherToken = login(String.valueOf(90_000_000L + Math.abs(ts % 9_000_000L)));
+        String otherVm = JsonPath.read(mvc.perform(get("/api/vms")
+                        .header("Authorization", "Bearer " + otherToken))
+                .andReturn().getResponse().getContentAsString(), "$[0].instanceId");
 
-        String otherSvcJson = "{\"name\":\"other-svc\","
-                + "\"instanceId\":\"solid-01\",\"privateIp\":\"10.0.0.1\","
-                + "\"localPort\":8080,\"protocol\":\"HTTP\",\"scope\":\"PRIVATE\"}";
         String otherSvcResult = mvc.perform(post("/api/services")
-                        .contentType(MediaType.APPLICATION_JSON).content(otherSvcJson)
-                        .header("Authorization", "Bearer " + otherKey))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(createJson("other-svc", otherVm, "PRIVATE"))
+                        .header("Authorization", "Bearer " + otherToken))
                 .andReturn().getResponse().getContentAsString();
         String otherId = JsonPath.read(otherSvcResult, "$.id");
 
-        mvc.perform(get("/api/services/" + otherId).header("Authorization", "Bearer " + apiKey))
+        mvc.perform(get("/api/services/" + otherId).header("Authorization", "Bearer " + token))
                 .andExpect(status().isNotFound());
     }
 
@@ -215,14 +235,12 @@ class ServiceApiTest {
 
     @Test
     void create_withPublicScope_returns400() throws Exception {
-        String body = "{\"name\":\"pub-direct\","
-                + "\"instanceId\":\"solid-01\",\"privateIp\":\"10.0.0.1\","
-                + "\"localPort\":8080,\"protocol\":\"HTTP\",\"scope\":\"PUBLIC\"}";
         mvc.perform(post("/api/services")
-                        .contentType(MediaType.APPLICATION_JSON).content(body)
-                        .header("Authorization", "Bearer " + apiKey))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(createJson("pub-direct", vmId, "PUBLIC"))
+                        .header("Authorization", "Bearer " + token))
                 .andExpect(status().isBadRequest())
-                .andExpect(content().string(org.hamcrest.Matchers.containsString("use POST /publish")));
+                .andExpect(content().string(containsString("use POST /publish")));
     }
 
     @Test
@@ -231,9 +249,9 @@ class ServiceApiTest {
         mvc.perform(patch("/api/services/" + id)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"scope\":\"PUBLIC\"}")
-                        .header("Authorization", "Bearer " + apiKey))
+                        .header("Authorization", "Bearer " + token))
                 .andExpect(status().isBadRequest())
-                .andExpect(content().string(org.hamcrest.Matchers.containsString("use POST /publish")));
+                .andExpect(content().string(containsString("use POST /publish")));
     }
 
     // ── 이름 변경 시 내부 hostname 갱신 ──────────────────────────────────────
@@ -245,11 +263,10 @@ class ServiceApiTest {
         mvc.perform(patch("/api/services/" + id)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"hostname-after\"}")
-                        .header("Authorization", "Bearer " + apiKey))
+                        .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.name").value("hostname-after"))
-                .andExpect(jsonPath("$.internalHostname")
-                        .value("hostname-after.solid-32211690.solid.internal"));
+                .andExpect(jsonPath("$.internalHostname").value(hostname("hostname-after")));
     }
 
     // ── PENDING 상태에서 scope 변경 → 터널 취소 ─────────────────────────────
@@ -262,14 +279,14 @@ class ServiceApiTest {
         mvc.perform(post("/api/services/" + id + "/publish")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"ttlHours\":2}")
-                        .header("Authorization", "Bearer " + apiKey))
+                        .header("Authorization", "Bearer " + token))
                 .andExpect(jsonPath("$.status").value("PENDING"))
                 .andExpect(jsonPath("$.pendingCommand").value("OPEN_TUNNEL"));
 
         mvc.perform(patch("/api/services/" + id)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"scope\":\"PRIVATE\"}")
-                        .header("Authorization", "Bearer " + apiKey))
+                        .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.scope").value("PRIVATE"))
                 .andExpect(jsonPath("$.pendingCommand").value("NONE"))
@@ -283,15 +300,15 @@ class ServiceApiTest {
     @Test
     void unpublish_restoresScopeToPrePublishValue() throws Exception {
         // INTERNAL scope로 서비스 생성 후 publish(PENDING) → unpublish → INTERNAL 복원
-        String id = idOf(createService("scope-restore-test")); // createJson uses INTERNAL
+        String id = idOf(createService("scope-restore-test")); // createService uses INTERNAL
 
         mvc.perform(post("/api/services/" + id + "/publish")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"ttlHours\":2}")
-                .header("Authorization", "Bearer " + apiKey));
+                .header("Authorization", "Bearer " + token));
 
         mvc.perform(delete("/api/services/" + id + "/publish")
-                        .header("Authorization", "Bearer " + apiKey))
+                        .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.scope").value("INTERNAL"))
                 .andExpect(jsonPath("$.pendingCommand").value("NONE"))
@@ -304,7 +321,7 @@ class ServiceApiTest {
         String id = idOf(createService("no-publish-unpublish"));
 
         mvc.perform(delete("/api/services/" + id + "/publish")
-                        .header("Authorization", "Bearer " + apiKey))
+                        .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.scope").value("INTERNAL"))
                 .andExpect(jsonPath("$.pendingCommand").value("NONE"));
@@ -314,21 +331,14 @@ class ServiceApiTest {
 
     @Test
     void publish_tunnelTargetIsLocalPortOnly() throws Exception {
-        // privateIp를 어떤 값으로 줘도 Relay는 이를 TunnelProvider에 전달하지 않음.
+        // 사설 IP는 서버가 CloudStack에서 채우며, Relay는 이를 TunnelProvider에 전달하지 않는다.
         // 실제 터널 대상(localhost:{port})은 VM Agent가 자신의 loopback으로 연결.
-        String body = "{\"name\":\"ip-guard-test\","
-                + "\"instanceId\":\"solid-99\",\"privateIp\":\"10.0.99.99\","
-                + "\"localPort\":5000,\"protocol\":\"HTTP\",\"scope\":\"PRIVATE\"}";
-        String svcJson = mvc.perform(post("/api/services")
-                        .contentType(MediaType.APPLICATION_JSON).content(body)
-                        .header("Authorization", "Bearer " + apiKey))
-                .andReturn().getResponse().getContentAsString();
-        String id = idOf(svcJson);
+        String id = idOf(createService("ip-guard-test"));
 
         mvc.perform(post("/api/services/" + id + "/publish")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"ttlHours\":1}")
-                        .header("Authorization", "Bearer " + apiKey))
+                        .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("PENDING"))
                 .andExpect(jsonPath("$.pendingCommand").value("OPEN_TUNNEL"))
@@ -345,12 +355,12 @@ class ServiceApiTest {
         mvc.perform(post("/api/services/" + id + "/publish")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"ttlHours\":2}")
-                .header("Authorization", "Bearer " + apiKey));
+                .header("Authorization", "Bearer " + token));
 
         mvc.perform(post("/api/services/" + id + "/publish")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"ttlHours\":4}")
-                        .header("Authorization", "Bearer " + apiKey))
+                        .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("PENDING"))
                 .andExpect(jsonPath("$.pendingCommand").value("OPEN_TUNNEL"))
@@ -358,7 +368,7 @@ class ServiceApiTest {
 
         // 그 후 unpublish → scope가 INTERNAL로 정확히 복원되는지 확인
         mvc.perform(delete("/api/services/" + id + "/publish")
-                        .header("Authorization", "Bearer " + apiKey))
+                        .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.scope").value("INTERNAL"))
                 .andExpect(jsonPath("$.pendingCommand").value("NONE"));
@@ -373,7 +383,7 @@ class ServiceApiTest {
         mvc.perform(post("/api/services/" + id + "/publish")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"ttlHours\":100}")  // 24 초과
-                        .header("Authorization", "Bearer " + apiKey))
+                        .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.publicExpiresAt").isNotEmpty());
     }
@@ -384,8 +394,8 @@ class ServiceApiTest {
     void create_defaultAccessPolicyIsDkuInternal() throws Exception {
         mvc.perform(post("/api/services")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(createJson("policy-default"))
-                        .header("Authorization", "Bearer " + apiKey))
+                        .content(createJson("policy-default", vmId, "INTERNAL"))
+                        .header("Authorization", "Bearer " + token))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.accessPolicy").value("DKU_INTERNAL"))
                 .andExpect(jsonPath("$.allowedEmails").isArray())
@@ -395,13 +405,13 @@ class ServiceApiTest {
     @Test
     void create_withAllowlist_storesNormalizedEmails() throws Exception {
         String body = "{\"name\":\"policy-allow\","
-                + "\"instanceId\":\"solid-01\",\"privateIp\":\"10.0.0.1\","
+                + "\"instanceId\":\"" + vmId + "\","
                 + "\"localPort\":8080,\"protocol\":\"HTTP\",\"scope\":\"INTERNAL\","
                 + "\"accessPolicy\":\"ALLOWLIST\","
                 + "\"allowedEmails\":[\"Hong@dankook.ac.kr\",\"lee@dankook.ac.kr\"]}";
         mvc.perform(post("/api/services")
                         .contentType(MediaType.APPLICATION_JSON).content(body)
-                        .header("Authorization", "Bearer " + apiKey))
+                        .header("Authorization", "Bearer " + token))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.accessPolicy").value("ALLOWLIST"))
                 .andExpect(jsonPath("$.allowedEmails",
@@ -414,7 +424,7 @@ class ServiceApiTest {
         mvc.perform(patch("/api/services/" + id)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"accessPolicy\":\"ALLOWLIST\",\"allowedEmails\":[\"x@dankook.ac.kr\"]}")
-                        .header("Authorization", "Bearer " + apiKey))
+                        .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.accessPolicy").value("ALLOWLIST"))
                 .andExpect(jsonPath("$.allowedEmails", hasItem("x@dankook.ac.kr")));

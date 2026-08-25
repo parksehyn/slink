@@ -38,11 +38,16 @@ Colab GPU 연결(기존 핵심 기능)을 유지하면서, SOLID VM에서 실행
 ```
 src/main/java/com/solid/connectgpu/
 ├── controller/   SessionController, UserController, ServiceController, VmAgentController,
+│                 ExternalResourceController, ExternalResourceAgentController,
 │                 DnsRecordController, OutboundConnectionController, VmController
-├── service/      SessionService, UserService, ServiceRegistry, VmAgentRegistry,
-│                 DnsRecordRegistry, OutboundConnectionRegistry
+├── service/      SessionService, UserService, ServiceRegistry,
+│                 AgentRegistry(통합: 구 VmAgentRegistry+ExternalResourceRegistry),
+│                 RegistrationTokenRegistry, DnsRecordRegistry, OutboundConnectionRegistry
 ├── model/        Session, User, ServiceEntry, ServiceScope, ServiceStatus, Protocol,
+│                 Agent, AgentLocation, AgentService, ResourceType, ResourceStatus,
 │                 AccessPolicy, DnsRecord, DnsRecordType, OutboundConnection, ConnectionType, VmInfo
+├── dns/          DnsCodec, DnsUdpServer (자체 구현 DNS 응답기 — RFC 1035 직접 구현,
+│                 dns.server.enabled로 활성, DnsRecordRegistry를 zone 데이터로 직접 서빙)
 ├── port/         DnsProvider, TunnelProvider, CloudStackProvider (인터페이스)
 │   └── impl/     MockDnsProvider, MockTunnelProvider, MockCloudStackProvider
 └── dto/          (각 API 요청·응답 record)
@@ -68,22 +73,30 @@ docs/             설계·로드맵·진행 문서
 | 경로 | 용도 |
 |------|------|
 | `POST/GET/DELETE /api/session/*` | Colab 세션 (기존) |
-| `POST /api/users/register`, `GET /api/users/me` | 사용자 인증 |
-| `POST/GET/PATCH/DELETE /api/services/*` | Service Registry (인바운드) + 접근 정책 |
-| `POST/DELETE /api/services/{id}/publish` | 외부 공개 제어 |
-| `GET/POST /api/dns/records`, `PATCH/DELETE /api/dns/records/{id}` | 내부 DNS 레코드(A/CNAME, 모의) |
-| `GET/POST /api/connections`, `DELETE /api/connections/{id}` | 아웃바운드 외부 연결 |
-| `GET /api/vms` | 내 SOLID VM 목록 (CloudStack, 모의) |
-| `POST /api/agents/register`, `/{id}/heartbeat`, `/{id}/report` | VM Agent |
+| `POST /api/auth/login`, `GET /api/auth/me`, `POST /api/auth/logout` | SOLID(CloudStack) 세션 인증 — DNS·VM·서비스·터널링 (토큰 `slk-…`) |
+| `POST /api/users/register`, `GET /api/users/me` | slink 자체 키 발급 — Colab 세션(`/api/session`) 전용 (`sk-dku-…`, 단계적 폐지 예정) |
+| `POST/GET/PATCH/DELETE /api/services/*` | Service Registry (인바운드, vmId 기반·소유권 검증). SOLID 인증 |
+| `POST/DELETE /api/services/{id}/publish` | 외부 공개 제어. SOLID 인증 |
+| `GET/POST /api/dns/records`, `GET/PATCH/DELETE /api/dns/records/{id}` | 내부 DNS 레코드(A=vmId 기반·소유권/사설IP 검증, CNAME). SOLID 인증·표준 에러 |
+| `GET/POST /api/connections`, `DELETE /api/connections/{id}` | 아웃바운드 외부 연결. SOLID 인증 |
+| `GET /api/vms` | 내 SOLID VM 목록 (CloudStack, SOLID 인증, 모의 가능) |
+| `POST /api/agents/register`(SOLID 인증) → `at-` 발급, `/{id}/heartbeat`·`/{id}/report`(에이전트 토큰 `at-`) | VM Agent |
+| `POST /api/resources/registration-token`(SOLID 인증) → `rt-`, `/api/resources/agents/register`(`rt-`) → `rat-`, `/{id}/heartbeat`·`/{id}/report`(`rat-`), `GET/DELETE /api/resources[/{id}]` | 외부 자원 Agent (통합 AgentRegistry, location=COLAB/EXTERNAL) |
+| `GET /api/metrics` | Relay 실시간 지표 (Agent 위치별 집계·서비스·JVM). SOLID 인증 |
 
 ## 관련 문서
 
 - [`docs/service-portal-design.md`](docs/service-portal-design.md) — Service Portal 상세 설계 (기준 문서)
 - [`docs/tabs-redesign.md`](docs/tabs-redesign.md) — 도메인/터널링 탭 재구성 확정 설계 + 구현 플랜
+- [`docs/dns-api-spec.md`](docs/dns-api-spec.md) — DNS 서비스 API 명세 + 구현 현황 (SOLID 인증·vmId 기반·DNS Server VM 자족형)
+- [`docs/dns-naming-policy.md`](docs/dns-naming-policy.md) — 내부 DNS 이름 정책 (전역 유일=현재 / 학번 네임스페이스=검토, 미팅 논의용)
+- [`docs/todo-next.md`](docs/todo-next.md) — 다음 작업 TODO + 미팅 안건 + 재개 치트시트 (DNS 이후)
 - [`docs/roadmap.md`](docs/roadmap.md) — 단계별 구현 계획
 - [`docs/progress.md`](docs/progress.md) — 구현 완료 기능 기록
 - [`docs/demo-theory.md`](docs/demo-theory.md) — 외부 공개(역방향 터널링) 데모 동작 이론
 - [`docs/demo-runbook.md`](docs/demo-runbook.md) — 데모 실행 순서(재배포 후 재셋업 포함) + 트러블슈팅
 - [`docs/internal-dns-requirements.md`](docs/internal-dns-requirements.md) — 내부 DNS 실연동에 필요한 권한·정보·정책
+- [`docs/external-resource-connection.md`](docs/external-resource-connection.md) — 아웃바운드를 외부 자원 연결로 재정의한 방향, Colab 통합 현황·후속 계획
+- [`docs/unified-agent-design.md`](docs/unified-agent-design.md) — 통합 Agent 설계 (인바운드/아웃바운드 → 단일 Agent+AgentList 모델, 미팅 피드백 반영)
 - [`docs/relay-on-vm.md`](docs/relay-on-vm.md) — Relay를 SOLID VM에 올리는 배포 설계 (Named Tunnel, 별도 트랙)
-- [`docs/design-a.md`](docs/design-a.md) — Colab 연결 설계 기록
+- [`docs/archive/design-a.md`](docs/archive/design-a.md) — (아카이브) Colab 연결 A안 설계 기록 — 구현 완료, 역사 참고용

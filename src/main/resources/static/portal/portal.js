@@ -1,9 +1,9 @@
 /* Shared utilities for SOLID Service Portal */
 
-const KEY_STORAGE = 'slink_api_key';
-const KEY_EMAIL   = 'slink_email';
+const KEY_STORAGE = 'slink_token';   // SOLID 세션 토큰(slk-…)
+const KEY_EMAIL   = 'slink_account'; // 표시용 계정(학번)
 
-function getApiKey() { return localStorage.getItem(KEY_STORAGE); }
+function getApiKey() { return localStorage.getItem(KEY_STORAGE); }  // 세션 토큰 반환
 function getEmail()  { return localStorage.getItem(KEY_EMAIL); }
 
 // Relay API base URL. 비우면 상대경로(포털을 서빙한 서버와 동일 origin).
@@ -25,20 +25,21 @@ function apiUrl(path) { return getApiBase() + path; }
 function setAuth(apiKey, email) {
     localStorage.setItem(KEY_STORAGE, apiKey);
     localStorage.setItem(KEY_EMAIL, email);
+    _vmCache = null;   // 새 로그인 → VM 목록 캐시 무효화(이전 세션/계정 잔존 방지)
 }
 
 function clearAuth() {
     localStorage.removeItem(KEY_STORAGE);
     localStorage.removeItem(KEY_EMAIL);
+    _vmCache = null;
 }
 
 async function apiFetch(path, options = {}) {
     const key = getApiKey();
     const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
     if (key) headers['Authorization'] = 'Bearer ' + key;
-    const res = await fetch(apiUrl(path), { ...options, headers });
-    if (res.status === 401) { clearAuth(); location.href = '/portal/index.html'; }
-    return res;
+    // 401 자동 로그아웃은 하지 않는다(탭별 엔드포인트 상태가 달라 오작동 방지). 호출부가 처리한다.
+    return fetch(apiUrl(path), { ...options, headers });
 }
 
 function formatExpiry(iso) {
@@ -74,13 +75,24 @@ function statusBadge(status) {
 
 async function requireAuth() {
     if (!getApiKey()) { location.href = '/portal/index.html'; return false; }
-    const res = await apiFetch('/api/users/me');
+    const res = await apiFetch('/api/auth/me');
     if (!res.ok) { clearAuth(); location.href = '/portal/index.html'; return false; }
     return true;
 }
 
 function dnsTypeBadge(type) {
     return `<span class="type-badge">${type}</span>`;
+}
+
+function dnsStatusBadge(status) {
+    const map = {
+        PENDING_SYNC: ['#d97706', '반영 대기'],
+        ACTIVE:       ['#16a34a', '활성'],
+        FAILED:       ['#dc2626', '실패'],
+        DELETED:      ['#9ca3af', '삭제됨'],
+    };
+    const [color, label] = map[status] || ['#9ca3af', status || '—'];
+    return `<span style="color:${color};font-weight:600">${label}</span>`;
 }
 
 function connTypeBadge(type) {

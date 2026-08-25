@@ -1,30 +1,52 @@
 package com.solid.connectgpu.service;
 
+import tools.jackson.databind.ObjectMapper;
 import com.solid.connectgpu.dto.CreateDnsRecordRequest;
+import com.solid.connectgpu.dto.DnsRecordSnapshot;
 import com.solid.connectgpu.dto.UpdateDnsRecordRequest;
 import com.solid.connectgpu.model.DnsRecord;
+import com.solid.connectgpu.model.DnsRecordStatus;
 import com.solid.connectgpu.model.DnsRecordType;
+import com.solid.connectgpu.model.SolidIdentity;
+import com.solid.connectgpu.model.VmInfo;
+import com.solid.connectgpu.port.CloudStackProvider;
 import com.solid.connectgpu.port.DnsProvider;
+import jakarta.annotation.PostConstruct;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
- * 사용자별 내부 DNS 레코드(A/CNAME) 저장소. 인메모리이며 소유자 단위로 격리한다.
- * 생성·수정·삭제 시 {@link DnsProvider}(현재 {@code MockDnsProvider})를 호출하여
- * "DNS 연동은 인터페이스로 분리, 실제 반영은 모의 구현" 원칙을 유지한다.
+ * 사용자별 내부 DNS 레코드(A/CNAME) 저장소. 소유자(=CloudStack 학번)로 격리한다.
+ * <ul>
+ *   <li>A 레코드는 {@code vmId}로 만들며, 서버가 {@link CloudStackProvider}로 소유권·사설 IP를 검증한다(명세서 §5.2/§7.3).</li>
+ *   <li>변경 시 {@link DnsProvider}로 CoreDNS에 반영(상태 PENDING_SYNC→ACTIVE/FAILED).</li>
+ *   <li>{@code dns.store.file} 설정 시 JSON 파일로 영속(기동 시 로드, 변경 시 저장).</li>
+ * </ul>
  */
 @Service
 public class DnsRecordRegistry {
 
-    // 호스트 이름: 점으로 구분된 라벨, 라벨은 소문자/숫자/하이픈
+    private static final Logger log = LoggerFactory.getLogger(DnsRecordRegistry.class);
+
     private static final Pattern HOSTNAME = Pattern.compile(
             "^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$");
-    // IPv4
     private static final Pattern IPV4 = Pattern.compile(
             "^((25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)$");
 
@@ -34,10 +56,56 @@ public class DnsRecordRegistry {
 
     private final ConcurrentHashMap<String, DnsRecord> records = new ConcurrentHashMap<>();
     private final DnsProvider dns;
+    private final CloudStackProvider cloudStack;
+    private final ObjectMapper mapper;
+    private final String storeFile;
+    /** 시스템 예약 이름(선점 차단). 존 운영 충돌(ns 등)과 흔한 인프라 이름을 막는다. */
+    private final Set<String> reservedNames;
+    /** 소유자(학번) 1인당 레코드 개수 상한. 0 이하면 무제한. 흔한 이름 싹쓸이·저장 비대화 방지. */
+    private final int maxRecordsPerOwner;
+    /** 방치 레코드 회수 기준(일). 0 이하면 비활성. 마지막 갱신 후 N일 지난 레코드를 자동 삭제. */
+    private final int expireDays;
 
-    public DnsRecordRegistry(DnsProvider dns) {
+    public DnsRecordRegistry(DnsProvider dns, CloudStackProvider cloudStack, ObjectMapper mapper,
+                             @Value("${dns.store.file:}") String storeFile,
+                             @Value("${dns.reserved-names:ns,ns1,ns2,www,mail,smtp,dns,coredns,localhost,gateway,admin,root}") String reservedNames,
+                             @Value("${dns.max-records-per-owner:20}") int maxRecordsPerOwner,
+                             @Value("${dns.record.expire-days:0}") int expireDays) {
         this.dns = dns;
+        this.cloudStack = cloudStack;
+        this.mapper = mapper;
+        this.storeFile = storeFile == null ? "" : storeFile.trim();
+        this.reservedNames = Arrays.stream((reservedNames == null ? "" : reservedNames).split(","))
+                .map(s -> s.trim().toLowerCase())
+                .filter(s -> !s.isEmpty())
+                .collect(Collectors.toUnmodifiableSet());
+        this.maxRecordsPerOwner = maxRecordsPerOwner;
+        this.expireDays = expireDays;
     }
+
+    @PostConstruct
+    void load() {
+        if (storeFile.isEmpty() || !Files.exists(Path.of(storeFile))) return;
+        try {
+            DnsRecordSnapshot[] snaps = mapper.readValue(Files.readAllBytes(Path.of(storeFile)),
+                    DnsRecordSnapshot[].class);
+            for (DnsRecordSnapshot s : snaps) {
+                DnsRecord r = new DnsRecord(s.id(), s.ownerId(), DnsRecordType.valueOf(s.type()),
+                        s.name(), s.value(), s.ttl(), s.vmId(), s.vmName(),
+                        DnsRecordStatus.valueOf(s.status()),
+                        Instant.parse(s.createdAt()), Instant.parse(s.updatedAt()));
+                records.put(r.getId(), r);
+                // 기동 시 DNS provider(zone) 재구성
+                try { dns.createRecord(r.getName(), r.getValue()); } catch (Exception ignore) {}
+            }
+            log.info("[DNS] loaded {} records from {}", records.size(), storeFile);
+        } catch (Exception e) {
+            log.warn("[DNS] failed to load store {}: {}", storeFile, e.getMessage());
+        }
+    }
+
+    /** 지표: 전체 레코드 수. */
+    public long count() { return records.size(); }
 
     public List<DnsRecord> findByOwner(String ownerId) {
         return records.values().stream()
@@ -50,19 +118,59 @@ public class DnsRecordRegistry {
         return Optional.ofNullable(records.get(id));
     }
 
-    public DnsRecord create(String ownerId, CreateDnsRecordRequest req) {
-        if (req.type() == null) throw new IllegalArgumentException("Record type is required (A or CNAME)");
+    /**
+     * DNS 응답기용: 존 기준 짧은 라벨로 조회 (루트는 {@code @}). 이름은 전역 유일이라
+     * 최대 1건이다. 자체 응답기는 이 레지스트리를 직접 zone 데이터로 사용한다
+     * (unified-agent-design.md §9 — CoreDNS 동기화 없이 자족).
+     */
+    public Optional<DnsRecord> findByName(String label) {
+        String want = label == null || label.isBlank() ? "@" : label.toLowerCase();
+        return records.values().stream()
+                .filter(r -> r.getName().equals(want))
+                .findFirst();
+    }
+
+    public DnsRecord create(SolidIdentity identity, CreateDnsRecordRequest req) {
+        String ownerId = identity.account();
+        if (req.type() == null)
+            throw new DnsApiException("INVALID_REQUEST", "레코드 타입(A 또는 CNAME)이 필요합니다.", 400);
         String name = normalize(req.name());
-        String value = req.value() == null ? "" : req.value().trim();
         validateName(name);
-        validateValue(req.type(), value);
-        if (nameTaken(ownerId, name, null))
-            throw new IllegalArgumentException("DNS name already in use: " + name);
+
+        if (maxRecordsPerOwner > 0 && findByOwner(ownerId).size() >= maxRecordsPerOwner)
+            throw new DnsApiException("RECORD_LIMIT_EXCEEDED",
+                    "DNS 레코드 개수 상한(" + maxRecordsPerOwner + "개)을 초과했습니다.", 429);
+
+        String vmId = null, vmName = null, value;
+        if (req.type() == DnsRecordType.A) {
+            if (req.vmId() == null || req.vmId().isBlank())
+                throw new DnsApiException("INVALID_REQUEST", "A 레코드는 vmId가 필요합니다.", 400);
+            VmInfo vm = cloudStack.findVm(identity, req.vmId().trim())
+                    .orElseThrow(() -> new DnsApiException("VM_NOT_FOUND",
+                            "VM을 찾을 수 없거나 접근 권한이 없습니다: " + req.vmId(), 404));
+            if (vm.account() != null && identity.account() != null
+                    && !vm.account().equals(identity.account()))
+                throw new DnsApiException("VM_NOT_OWNED", "해당 VM의 소유자가 아닙니다.", 403);
+            value = vm.privateIp();
+            validatePrivateIp(value);
+            vmId = vm.instanceId();
+            vmName = vm.displayName();
+        } else { // CNAME
+            value = req.value() == null ? "" : req.value().trim();
+            if (value.isBlank())
+                throw new DnsApiException("INVALID_REQUEST", "CNAME 대상 호스트가 필요합니다.", 400);
+            if (!HOSTNAME.matcher(value).matches())
+                throw new DnsApiException("INVALID_DNS_NAME", "CNAME 대상이 올바른 호스트가 아닙니다: " + value, 400);
+        }
+
+        if (nameTaken(name, null))
+            throw new DnsApiException("DUPLICATE_RECORD", "이미 사용 중인 DNS 이름입니다: " + name, 409);
 
         int ttl = clampTtl(req.ttl() != null ? req.ttl() : DEFAULT_TTL);
-        DnsRecord record = new DnsRecord(ownerId, req.type(), name, value, ttl);
+        DnsRecord record = new DnsRecord(ownerId, req.type(), name, value, ttl, vmId, vmName);
         records.put(record.getId(), record);
-        dns.createRecord(record.getName(), record.getValue());
+        persist();
+        syncToDns(record, () -> dns.createRecord(record.getName(), record.getValue()));
         return record;
     }
 
@@ -75,20 +183,24 @@ public class DnsRecordRegistry {
         String newValue = req.value() != null ? req.value().trim() : record.getValue();
         validateName(newName);
         validateValue(newType, newValue);
-        if (nameTaken(ownerId, newName, id))
-            throw new IllegalArgumentException("DNS name already in use: " + newName);
+        if (nameTaken(newName, id))
+            throw new DnsApiException("DUPLICATE_RECORD", "이미 사용 중인 DNS 이름입니다: " + newName, 409);
 
         String oldName = record.getName();
         record.setType(newType);
         record.setName(newName);
         record.setValue(newValue);
         if (req.ttl() != null) record.setTtl(clampTtl(req.ttl()));
+        record.setStatus(DnsRecordStatus.PENDING_SYNC);
+        persist();
 
         if (!oldName.equals(newName)) {
-            dns.deleteRecord(oldName);
-            dns.createRecord(newName, newValue);
+            syncToDns(record, () -> {
+                dns.deleteRecord(oldName);
+                dns.createRecord(newName, newValue);
+            });
         } else {
-            dns.updateRecord(newName, newValue);
+            syncToDns(record, () -> dns.updateRecord(newName, newValue));
         }
         return Optional.of(record);
     }
@@ -97,16 +209,82 @@ public class DnsRecordRegistry {
         DnsRecord record = records.get(id);
         if (record == null || !record.getOwnerId().equals(ownerId)) return false;
         records.remove(id);
-        dns.deleteRecord(record.getName());
+        persist();
+        try { dns.deleteRecord(record.getName()); } catch (Exception e) {
+            log.warn("[DNS] deleteRecord sync failed for {}: {}", record.getName(), e.getMessage());
+        }
         return true;
+    }
+
+    // ── Scheduled reclamation ─────────────────────────────────────────────────────
+
+    /**
+     * 방치 레코드 회수 — 마지막 갱신({@code updatedAt}) 후 {@code dns.record.expire-days}일이
+     * 지난 레코드를 자동 삭제한다. 전역 유일(선착순) 정책에서 졸업·방치된 이름이 풀을 영구
+     * 점유하는 것을 막는다. {@code expire-days <= 0}이면 비활성(기본).
+     */
+    @Scheduled(fixedDelay = 3_600_000) // 1시간마다
+    public void reclaimExpired() {
+        if (expireDays <= 0) return;
+        reclaimOlderThan(Instant.now().minus(Duration.ofDays(expireDays)));
+    }
+
+    /** {@code updatedAt < cutoff}인 레코드를 삭제하고 회수 건수를 반환한다(스케줄러/테스트 공용). */
+    public int reclaimOlderThan(Instant cutoff) {
+        List<DnsRecord> stale = records.values().stream()
+                .filter(r -> r.getUpdatedAt().isBefore(cutoff))
+                .toList();
+        for (DnsRecord r : stale) {
+            records.remove(r.getId());
+            log.info("[DNS] reclaimed stale record {} (owner={}, lastUpdated={})",
+                    r.getName(), r.getOwnerId(), r.getUpdatedAt());
+            try { dns.deleteRecord(r.getName()); } catch (Exception e) {
+                log.warn("[DNS] reclaim deleteRecord sync failed for {}: {}", r.getName(), e.getMessage());
+            }
+        }
+        if (!stale.isEmpty()) persist();
+        return stale.size();
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────────
 
-    private boolean nameTaken(String ownerId, String name, String excludeId) {
+    private void syncToDns(DnsRecord record, Runnable op) {
+        try {
+            op.run();
+            record.setStatus(DnsRecordStatus.ACTIVE);
+            persist();
+        } catch (Exception e) {
+            record.setStatus(DnsRecordStatus.FAILED);
+            persist();
+            throw new DnsApiException("DNS_SYNC_FAILED", "CoreDNS 반영 실패: " + e.getMessage(), 500);
+        }
+    }
+
+    private void persist() {
+        if (storeFile.isEmpty()) return;
+        try {
+            List<DnsRecordSnapshot> snaps = records.values().stream().map(r -> new DnsRecordSnapshot(
+                    r.getId(), r.getOwnerId(), r.getType().name(), r.getName(), r.getValue(), r.getTtl(),
+                    r.getVmId(), r.getVmName(), r.getStatus().name(),
+                    r.getCreatedAt().toString(), r.getUpdatedAt().toString())).toList();
+            Path file = Path.of(storeFile);
+            if (file.getParent() != null) Files.createDirectories(file.getParent());
+            Path tmp = file.resolveSibling(file.getFileName() + ".tmp");
+            Files.write(tmp, mapper.writeValueAsBytes(snaps));
+            Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING);
+        } catch (Exception e) {
+            log.warn("[DNS] failed to persist store {}: {}", storeFile, e.getMessage());
+        }
+    }
+
+    /**
+     * DNS 이름 중복 검사 — <b>전역 유일</b>(소유자 무관). 멀티유저에서 서로 다른 학생이 같은
+     * {@code web.solid.internal}을 만들어 zone에서 덮어쓰는(하이재킹) 것을 막는다(선착순).
+     * 향후 학번 네임스페이스로 바꾸는 안은 {@code docs/dns-naming-policy.md} 참고.
+     */
+    private boolean nameTaken(String name, String excludeId) {
         return records.values().stream()
-                .anyMatch(r -> r.getOwnerId().equals(ownerId)
-                        && !r.getId().equals(excludeId == null ? "" : excludeId)
+                .anyMatch(r -> !r.getId().equals(excludeId == null ? "" : excludeId)
                         && r.getName().equals(name));
     }
 
@@ -114,29 +292,51 @@ public class DnsRecordRegistry {
         return Math.min(Math.max(ttl, MIN_TTL), MAX_TTL);
     }
 
+    /** 입력에서 트레일링 존(.solid.internal)을 제거하고 짧은 라벨로 정규화. 빈값/루트는 {@code @}. */
     private String normalize(String s) {
-        return s == null ? "" : s.trim().toLowerCase();
+        String h = s == null ? "" : s.trim().toLowerCase().replaceAll("\\.$", "");
+        if (h.isEmpty() || h.equals("@") || h.equals(DnsRecord.ZONE)) return "@";
+        if (h.endsWith("." + DnsRecord.ZONE)) return h.substring(0, h.length() - DnsRecord.ZONE.length() - 1);
+        return h;
     }
 
     private void validateName(String name) {
+        if (name.equals("@")) return; // 존 루트 허용
         if (name.isBlank())
-            throw new IllegalArgumentException("Record name is required");
-        if (!HOSTNAME.matcher(name).matches())
-            throw new IllegalArgumentException("Invalid host name: " + name);
+            throw new DnsApiException("INVALID_DNS_NAME", "레코드 이름이 필요합니다.", 400);
+        // 와일드카드는 자기 서브트리(*.x)만 허용. 루트 와일드카드(*)는 존 내 모든 미등록
+        // 이름을 한 사람이 선점하게 되므로 차단 (자체 응답기의 와일드카드 매칭 대상).
+        String host = name;
+        if (name.equals("*"))
+            throw new DnsApiException("RESERVED_NAME", "루트 와일드카드(*)는 사용할 수 없습니다.", 400);
+        if (name.startsWith("*.")) host = name.substring(2);
+        if (!HOSTNAME.matcher(host).matches())
+            throw new DnsApiException("INVALID_DNS_NAME", "DNS 이름은 소문자/숫자/하이픈만 사용할 수 있습니다: " + name, 400);
+        // 첫 라벨이 예약어면 차단 (web.solid.internal 형태에서 web 검사, *.web이면 web 검사)
+        String firstLabel = host.contains(".") ? host.substring(0, host.indexOf('.')) : host;
+        if (reservedNames.contains(firstLabel))
+            throw new DnsApiException("RESERVED_NAME", "예약된 DNS 이름은 사용할 수 없습니다: " + firstLabel, 400);
     }
 
     private void validateValue(DnsRecordType type, String value) {
-        if (value.isBlank())
-            throw new IllegalArgumentException("Record value is required");
+        if (value == null || value.isBlank())
+            throw new DnsApiException("INVALID_REQUEST", "레코드 값이 필요합니다.", 400);
         switch (type) {
-            case A -> {
-                if (!IPV4.matcher(value).matches())
-                    throw new IllegalArgumentException("A record value must be an IPv4 address: " + value);
-            }
+            case A -> validatePrivateIp(value);
             case CNAME -> {
                 if (!HOSTNAME.matcher(value).matches())
-                    throw new IllegalArgumentException("CNAME value must be a host name: " + value);
+                    throw new DnsApiException("INVALID_DNS_NAME", "CNAME 대상이 올바른 호스트가 아닙니다: " + value, 400);
             }
         }
+    }
+
+    /** SOLID 사설 대역(10.0.0.0/8)만 허용. 루프백·링크로컬·메타데이터·공인 IP 거부 (명세서 §7.2). */
+    private void validatePrivateIp(String ip) {
+        if (ip == null || !IPV4.matcher(ip).matches())
+            throw new DnsApiException("INVALID_IP_RANGE", "올바른 IPv4 주소가 아닙니다: " + ip, 400);
+        int first = Integer.parseInt(ip.substring(0, ip.indexOf('.')));
+        if (first != 10)
+            throw new DnsApiException("INVALID_IP_RANGE",
+                    "SOLID 사설망(10.0.0.0/8)만 등록할 수 있습니다: " + ip, 400);
     }
 }

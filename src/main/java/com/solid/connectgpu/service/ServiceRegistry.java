@@ -1,13 +1,23 @@
 package com.solid.connectgpu.service;
 
+import tools.jackson.databind.ObjectMapper;
 import com.solid.connectgpu.dto.AgentHeartbeatResponse;
 import com.solid.connectgpu.dto.CreateServiceRequest;
+import com.solid.connectgpu.dto.ServiceEntrySnapshot;
 import com.solid.connectgpu.dto.UpdateServiceRequest;
 import com.solid.connectgpu.model.*;
+import com.solid.connectgpu.port.CloudStackProvider;
 import com.solid.connectgpu.port.DnsProvider;
+import jakarta.annotation.PostConstruct;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
@@ -17,28 +27,85 @@ import java.util.concurrent.ConcurrentHashMap;
 @Service
 public class ServiceRegistry {
 
+    private static final Logger log = LoggerFactory.getLogger(ServiceRegistry.class);
+
     private static final int MAX_TTL_HOURS = 24;
     private static final java.util.regex.Pattern NAME_PATTERN =
             java.util.regex.Pattern.compile("^[a-z0-9][a-z0-9-]{0,48}[a-z0-9]$|^[a-z0-9]$");
 
     private final ConcurrentHashMap<String, ServiceEntry> services = new ConcurrentHashMap<>();
     private final DnsProvider dns;
-    private final VmAgentRegistry agentRegistry;
+    private final AgentRegistry agentRegistry;
+    private final CloudStackProvider cloudStack;
+    private final ObjectMapper mapper;
+    private final String storeFile;
+    /** 소유자(학번) 1인당 서비스 개수 상한. 0 이하면 무제한. */
+    private final int maxPerOwner;
+    /** 소유자 1인당 동시 공개(PUBLIC/대기 중) 서비스 상한. 0 이하면 무제한. */
+    private final int maxPublicPerOwner;
 
     // TunnelProvider removed: tunnels are now managed by VM Agents, not by Relay.
     // TODO (issue #3): activate real TunnelProvider only after VM Agent or CloudStack
     //                  ownership verification is complete.
-    public ServiceRegistry(DnsProvider dns, VmAgentRegistry agentRegistry) {
+    public ServiceRegistry(DnsProvider dns, AgentRegistry agentRegistry, CloudStackProvider cloudStack,
+                           ObjectMapper mapper,
+                           @Value("${service.store.file:}") String storeFile,
+                           @Value("${service.max-per-owner:10}") int maxPerOwner,
+                           @Value("${service.max-public-per-owner:3}") int maxPublicPerOwner) {
         this.dns = dns;
         this.agentRegistry = agentRegistry;
+        this.cloudStack = cloudStack;
+        this.mapper = mapper;
+        this.storeFile = storeFile == null ? "" : storeFile.trim();
+        this.maxPerOwner = maxPerOwner;
+        this.maxPublicPerOwner = maxPublicPerOwner;
+    }
+
+    @PostConstruct
+    public void load() {
+        if (storeFile.isEmpty() || !Files.exists(Path.of(storeFile))) return;
+        try {
+            ServiceEntrySnapshot[] snaps = mapper.readValue(Files.readAllBytes(Path.of(storeFile)),
+                    ServiceEntrySnapshot[].class);
+            for (ServiceEntrySnapshot s : snaps) {
+                ServiceEntry e = new ServiceEntry(
+                        s.id(), s.ownerId(), s.name(), s.instanceId(), s.privateIp(),
+                        s.localPort(), Protocol.valueOf(s.protocol()), ServiceScope.valueOf(s.scope()),
+                        ServiceStatus.valueOf(s.status()), AccessPolicy.valueOf(s.accessPolicy()),
+                        s.allowedEmails(), s.internalHostname(), s.publicUrl(),
+                        s.publicExpiresAt() != null ? Instant.parse(s.publicExpiresAt()) : null,
+                        s.scopeBeforePublish() != null ? ServiceScope.valueOf(s.scopeBeforePublish()) : null,
+                        AgentCommand.valueOf(s.pendingCommand()), s.agentId(),
+                        Instant.parse(s.createdAt()), Instant.parse(s.updatedAt()));
+                services.put(e.getId(), e);
+                // 기동 시 내부 DNS(zone) 재구성 — INTERNAL/TEAM은 사설 IP A 레코드를 다시 등록
+                if (e.getScope() == ServiceScope.INTERNAL || e.getScope() == ServiceScope.TEAM) {
+                    try { dns.createRecord(e.getInternalHostname(), e.getPrivateIp()); } catch (Exception ignore) {}
+                }
+            }
+            log.info("[SVC] loaded {} services from {}", services.size(), storeFile);
+        } catch (Exception ex) {
+            log.warn("[SVC] failed to load store {}: {}", storeFile, ex.getMessage());
+        }
     }
 
     // ── CRUD ─────────────────────────────────────────────────────────────────────
 
-    public ServiceEntry create(String ownerId, CreateServiceRequest req) {
+    /**
+     * 서비스 생성. A 레코드(DNS)와 동일하게 {@code instanceId}만 받아 CloudStack에서
+     * 소유권·사설 IP를 채운다(수동 IP 입력·자기신고 금지). 소유자(=학번)는 SOLID 세션에서 온다.
+     */
+    public ServiceEntry create(SolidIdentity identity, CreateServiceRequest req) {
+        String ownerId = identity.account();
         validateCreate(ownerId, req);
+        VmInfo vm = cloudStack.findVm(identity, req.instanceId().trim())
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "VM을 찾을 수 없거나 접근 권한이 없습니다: " + req.instanceId()));
+        if (vm.account() != null && identity.account() != null
+                && !vm.account().equals(identity.account()))
+            throw new IllegalArgumentException("해당 VM의 소유자가 아닙니다.");
         ServiceEntry entry = new ServiceEntry(
-                ownerId, req.name(), req.instanceId(), req.privateIp(),
+                ownerId, req.name(), vm.instanceId(), vm.privateIp(),
                 req.localPort(), req.protocol(), req.scope()
         );
         if (req.accessPolicy() != null) entry.setAccessPolicy(req.accessPolicy());
@@ -47,11 +114,21 @@ public class ServiceRegistry {
         if (req.scope() == ServiceScope.INTERNAL || req.scope() == ServiceScope.TEAM) {
             dns.createRecord(entry.getInternalHostname(), entry.getPrivateIp());
         }
+        persist();
         return entry;
     }
 
     public Optional<ServiceEntry> findById(String id) {
         return Optional.ofNullable(services.get(id));
+    }
+
+    /** 지표: 전체 서비스 수. */
+    public long count() { return services.size(); }
+
+    /** 지표: 외부 공개(PUBLIC) 서비스 수. */
+    public long countPublic() {
+        return services.values().stream()
+                .filter(e -> e.getScope() == ServiceScope.PUBLIC).count();
     }
 
     public List<ServiceEntry> findByOwner(String ownerId) {
@@ -104,6 +181,7 @@ public class ServiceRegistry {
         }
         if (req.accessPolicy() != null) entry.setAccessPolicy(req.accessPolicy());
         if (req.allowedEmails() != null) entry.setAllowedEmails(normalizeEmails(req.allowedEmails()));
+        persist();
         return Optional.of(entry);
     }
 
@@ -123,6 +201,7 @@ public class ServiceRegistry {
 
         services.remove(id);
         dns.deleteRecord(entry.getInternalHostname());
+        persist();
         return true;
     }
 
@@ -138,6 +217,20 @@ public class ServiceRegistry {
         ServiceEntry entry = services.get(id);
         if (entry == null || !entry.getOwnerId().equals(ownerId)) return Optional.empty();
 
+        // 이미 공개(또는 공개 대기) 상태가 아닌 새 공개 요청만 상한에 계산한다(재publish 허용).
+        boolean alreadyPublic = entry.getScope() == ServiceScope.PUBLIC
+                || entry.getPendingCommand() == AgentCommand.OPEN_TUNNEL;
+        if (maxPublicPerOwner > 0 && !alreadyPublic) {
+            long activePublic = services.values().stream()
+                    .filter(s -> s.getOwnerId().equals(ownerId) && !s.getId().equals(id))
+                    .filter(s -> s.getScope() == ServiceScope.PUBLIC
+                            || s.getPendingCommand() == AgentCommand.OPEN_TUNNEL)
+                    .count();
+            if (activePublic >= maxPublicPerOwner)
+                throw new IllegalArgumentException(
+                        "동시 공개 서비스 개수 상한(" + maxPublicPerOwner + "개)을 초과했습니다.");
+        }
+
         int clampedTtl = Math.min(Math.max(ttlHours, 1), MAX_TTL_HOURS);
 
         // Save pre-publish scope so we can restore it on unpublish/failure
@@ -147,6 +240,7 @@ public class ServiceRegistry {
         entry.setStatus(ServiceStatus.PENDING);
         entry.setPendingCommand(AgentCommand.OPEN_TUNNEL);
         entry.setPublicExpiresAt(Instant.now().plusSeconds(clampedTtl * 3600L));
+        persist();
         return Optional.of(entry);
     }
 
@@ -167,6 +261,7 @@ public class ServiceRegistry {
             // Tunnel is active — tell agent to close it
             entry.setPendingCommand(AgentCommand.CLOSE_TUNNEL);
         }
+        persist();
         return Optional.of(entry);
     }
 
@@ -188,6 +283,7 @@ public class ServiceRegistry {
         entry.setStatus(ServiceStatus.ONLINE);
         entry.setPendingCommand(AgentCommand.NONE);
         entry.setAgentId(agentId);
+        persist();
     }
 
     /**
@@ -210,6 +306,7 @@ public class ServiceRegistry {
         }
         entry.setStatus(ServiceStatus.UNKNOWN);
         entry.setAgentId(null);
+        persist();
     }
 
     /**
@@ -228,6 +325,7 @@ public class ServiceRegistry {
         entry.setPublicExpiresAt(null);
         entry.setStatus(ServiceStatus.OFFLINE);
         entry.setAgentId(null);
+        persist();
     }
 
     /**
@@ -255,6 +353,7 @@ public class ServiceRegistry {
     @Scheduled(fixedDelay = 300_000)
     public void cleanExpiredPublic() {
         Instant now = Instant.now();
+        boolean[] changed = {false};
         services.values().stream()
                 .filter(e -> e.getPublicExpiresAt() != null && now.isAfter(e.getPublicExpiresAt()))
                 .forEach(e -> {
@@ -264,6 +363,7 @@ public class ServiceRegistry {
                         e.setStatus(ServiceStatus.UNKNOWN);
                         e.setPublicExpiresAt(null);
                         restorePrePublishScope(e);
+                        changed[0] = true;
                     } else if (e.getScope() == ServiceScope.PUBLIC) {
                         if (agentRegistry.isInstanceAlive(e.getInstanceId())) {
                             // Agent is alive — ask it to close the tunnel
@@ -277,8 +377,10 @@ public class ServiceRegistry {
                             e.setPendingCommand(AgentCommand.NONE);
                             e.setAgentId(null);
                         }
+                        changed[0] = true;
                     }
                 });
+        if (changed[0]) persist();
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -306,8 +408,6 @@ public class ServiceRegistry {
         validateName(req.name());
         if (req.instanceId() == null || req.instanceId().isBlank())
             throw new IllegalArgumentException("Instance ID is required");
-        if (req.privateIp() == null || req.privateIp().isBlank())
-            throw new IllegalArgumentException("Private IP is required");
         if (req.localPort() < 1 || req.localPort() > 65535)
             throw new IllegalArgumentException("Port must be between 1 and 65535");
         if (req.protocol() == null)
@@ -316,6 +416,8 @@ public class ServiceRegistry {
             throw new IllegalArgumentException("Scope is required");
         if (req.scope() == ServiceScope.PUBLIC)
             throw new IllegalArgumentException("PUBLIC scope cannot be set directly; use POST /publish");
+        if (maxPerOwner > 0 && findByOwner(ownerId).size() >= maxPerOwner)
+            throw new IllegalArgumentException("서비스 개수 상한(" + maxPerOwner + "개)을 초과했습니다.");
         boolean nameTaken = services.values().stream()
                 .anyMatch(s -> s.getOwnerId().equals(ownerId) && s.getName().equals(req.name()));
         if (nameTaken) throw new IllegalArgumentException("Service name already in use: " + req.name());
@@ -334,6 +436,28 @@ public class ServiceRegistry {
             dns.createRecord(entry.getInternalHostname(), entry.getPrivateIp());
         } else if (wasInternal && !isInternal) {
             dns.deleteRecord(entry.getInternalHostname());
+        }
+    }
+
+    private void persist() {
+        if (storeFile.isEmpty()) return;
+        try {
+            List<ServiceEntrySnapshot> snaps = services.values().stream().map(e -> new ServiceEntrySnapshot(
+                    e.getId(), e.getOwnerId(), e.getName(), e.getInstanceId(), e.getPrivateIp(),
+                    e.getLocalPort(), e.getProtocol().name(), e.getScope().name(), e.getStatus().name(),
+                    e.getAccessPolicy().name(), e.getAllowedEmails(), e.getInternalHostname(),
+                    e.getPublicUrl(),
+                    e.getPublicExpiresAt() != null ? e.getPublicExpiresAt().toString() : null,
+                    e.getScopeBeforePublish() != null ? e.getScopeBeforePublish().name() : null,
+                    e.getPendingCommand().name(), e.getAgentId(),
+                    e.getCreatedAt().toString(), e.getUpdatedAt().toString())).toList();
+            Path file = Path.of(storeFile);
+            if (file.getParent() != null) Files.createDirectories(file.getParent());
+            Path tmp = file.resolveSibling(file.getFileName() + ".tmp");
+            Files.write(tmp, mapper.writeValueAsBytes(snaps));
+            Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING);
+        } catch (Exception e) {
+            log.warn("[SVC] failed to persist store {}: {}", storeFile, e.getMessage());
         }
     }
 }
